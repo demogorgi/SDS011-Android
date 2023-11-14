@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Mobiler Feinstaubsensor</title>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+    <script type="text/javascript" src="/static/jquery.mobile-1.4.5.css"></script>
+    <script type="text/javascript" src="/static/jquery-1.8.2.min.js"></script>
+    <script type="text/javascript" src="/static/Chart.min.js"></script>
+    <script type="text/javascript">
+	    var $SCRIPT_ROOT = 'http://localhost:8080'
+    </script>
+  </head>
+  <body>
+
+    <script type=text/javascript>
+      refreshTimer = null;
+      refreshInterval = 1000;
+
+      function refreshStatus() {
+	      $.ajax({
+		      type: "GET",
+		      url: $SCRIPT_ROOT + "/status/",
+		      contentType: "application/json; charset=utf-8",
+		      data: { echoValue: $('input[name="statusBtn"]').val() },
+		      success: function(data) {
+			      $('#echoResultStatus').text(data.value);        
+			      $('#echolat').text(data.lat);
+			      $('#echolon').text(data.lon);
+			      $('#echopm_10').text(data.pm_10);
+			      $('#echopm_10').css("background-color", data.pm_10_color);
+			      $('#echopm_25').text(data.pm_25);
+			      $('#echopm_25').css("background-color", data.pm_25_color);
+			      $('#echoerror').text(data.error_msg);
+			      addData( myChart, "", data.pm_10, data.pm_25 );
+			    }
+		    });     
+	    };
+
+      function periodicRefresh() {
+	      refreshStatus();
+
+	      setTimeout(periodicRefresh, refreshInterval);
+	    };
+
+      function startPeriodicRefresh(seconds) {
+	      if (refreshTimer)
+		clearTimeout(refreshTimer);
+
+	      refreshInterval = seconds * 1000;
+
+	      refreshTimer = setTimeout(periodicRefresh, refreshInterval);
+	    }
+
+      $(function() {
+	      $('#refreshRate').change(function() {
+		      startPeriodicRefresh($('#refreshRate').val());
+		    });
+	      startPeriodicRefresh(1);
+
+	      $("#refreshBtn").click(function() {
+		      refreshStatus();     
+		    });
+
+	      $("#startBtn").click(function() {
+		      $(this).prop('disabled', true);
+		      $("#stoppBtn").prop('disabled', false);
+
+		      $.ajax({
+			      type: "GET",
+			      url: $SCRIPT_ROOT + "/start/",
+			      contentType: "application/json; charset=utf-8",
+			      data: { echoValue: $('input[name="startBtn"]').val() },
+			      success: function(data) {
+				      $('#echoResult').text(data.value);
+				      refreshStatus();
+				    }
+			    });     
+		    });
+	      $("#stoppBtn").click(function() {
+		      $(this).prop('disabled', true);
+		      $("#startBtn").prop('disabled', false);
+
+		      $.ajax({
+			      type: "GET",
+			      url: $SCRIPT_ROOT + "/stopp/",
+			      contentType: "application/json; charset=utf-8",
+			      data: { echoValue: $('input[name="stoppBtn"]').val() },
+			      success: function(data) {
+				      $('#echoResult').text(data.value);
+				      refreshStatus();
+				    }
+			    });     
+		    });
+	      <!-- stationary mode
+	      $("#startStatBtn").click(function() {
+		      $(this).prop('disabled', true);
+		      $("#stoppStatBtn").prop('disabled', false);
+
+		      $.ajax({
+			      type: "GET",
+			      url: $SCRIPT_ROOT + "/staton/",
+			      contentType: "application/json; charset=utf-8",
+			      data: { echoValue: $('input[name="startStatBtn"]').val() },
+			      success: function(data) {
+				      $('#echoResult').text(data.value);
+				      refreshStatus();
+				    }
+			    });     
+		    });
+	      $("#stoppStatBtn").click(function() {
+		      $(this).prop('disabled', true);
+		      $("#startStatBtn").prop('disabled', false);
+
+		      $.ajax({
+			      type: "GET",
+			      url: $SCRIPT_ROOT + "/statoff/",
+			      contentType: "application/json; charset=utf-8",
+			      data: { echoValue: $('input[name="stoppStatBtn"]').val() },
+			      success: function(data) {
+				      $('#echoResult').text(data.value);
+				      refreshStatus();
+				    }
+			    });     
+		    });
+	      $("#stoppStatBtn").prop('disabled', true);
+	      -->
+	      $("#stoppBtn").prop('disabled', true);
+	    });
+    </script>
+
+    <style media="screen">
+
+body {background-color: #1B262C; color: #BBE1FA; }
+
+.main-pnl { font-family: Arial; font-size: 2em !important; width: 95%; margin-left: auto; margin-right: auto; }
+
+table { font-size: 1.2em !important; }
+td { text-align: center; }
+.tdblack { color: black; }
+.tdwhite { color: #3282B8; }
+
+a { color: #3282B8; font-size: 1em; margin-left: auto; margin-right: auto; }
+
+.vflex { display: flex; flex-direction: column; }
+.hflex { display: flex; flex-direction: row; }
+hline { width: 100%; height: 2px; background-color: #BBE1FA; }
+strong { text-align: center; }
+
+.stretched { align-items: stretch; justify-content: space-between; align-content: stretch; }
+
+.btn { cursor: pointer; display: inline-block; padding: 0.5em; border-radius: 10%; text-align: center; color: #BBE1FA }
+.btn.start { background-color: #0F4C75; width: 30%; }
+.btn.stop { background-color: #3282B8; width: 30% }
+.btn.refresh { background-color: #3282B8; width: 30% }
+
+select {
+  width: 33.3%;
+  font-size: 1em;
+  cursor: pointer;
+  display: inline-block;
+  padding: 0.5em;
+  border-radius: 10%;
+  color: #BBE1FA;
+  background: url(/static/arrow_down.png) no-repeat right #0F4C75;
+  background-size: 1.3em;
+  -webkit-appearance: none;
+}
+
+    </style>
+
+
+    <div class="vflex main-pnl">
+      <strong>Feinstaubwerte in &micro;g/m<sup>3</sup> und GPS Position</strong>
+      <br/>
+      <table style="width: 100%" >
+	<!--id="table-column-toggle" -->
+	<thead>
+	  <tr>
+	    <th>PM<sub>10</sub></th>
+	    <th>PM<sub>2.5</sub></th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td class="tdblack" id="echopm_10"></td>
+	    <td class="tdblack" id="echopm_25"></td>
+	  </tr>
+	</tbody>
+      </table>
+
+      <br/>
+
+      <table style="width: 100%" >
+	<!--id="table-column-toggle" -->
+	<thead>
+	  <tr>
+	    <th>Breite</th>
+	    <th>Länge</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td class="tdwhite" id="echolat"></td>
+	    <td class="tdwhite" id="echolon"></td>
+	  </tr>
+	</tbody>
+      </table>
+
+      <br/>
+      <hline></hline>
+      <br/>
+
+      <strong>Visualisierung</strong><br/>
+      <div style="width:100%;">
+
+	<canvas id="mycanvas"></canvas>
+      </div>
+      <script>
+	// used for example purposes
+	function getRandomIntInclusive(min, max) {
+		  min = Math.ceil(min);
+		  max = Math.floor(max);
+		  return Math.floor(Math.random() * (max - min + 1)) + min;
+		}
+
+	// Adding and removing data is supported by changing the data array.
+	function addData(chart, label, data1, data2) {
+		  chart.data.labels.push(label);
+		  //    chart.data.datasets.forEach((dataset) => {
+		  //  dataset.data.push(data);
+		  chart.data.datasets[0].data.push(data1);
+		  chart.data.datasets[1].data.push(data2);
+		  //});
+		  chart.update(0); // 0 = no animation
+		}
+
+
+	// create initial empty chart
+	var ctx_live = document.getElementById("mycanvas");
+	Chart.defaults.global.defaultFontSize = 30;
+	var myChart = new Chart(ctx_live, {
+		  type: 'line',
+		  data: {
+			    labels: [],
+			    datasets: [{
+				      data: [],
+				      steppedLine: false,
+				      borderWidth: 2,
+				      borderColor:'#00ff88',
+				      backgroundColor:'#00ff88',
+				      label: 'PM\u2081\u2080',
+				      fill: false,
+				    }, {
+					      data: [],
+					      steppedLine: false,
+					      borderWidth: 2,
+					      borderColor:'#ff8800',
+					      backgroundColor:'#ff8800',
+					      label: 'PM\u2082.\u2085',
+					      fill: false,
+					    }]
+			  },
+		  options: {
+			    responsive: true,
+			    title: {
+				      display: false,
+				      fontColor: "#BBE1FA",
+				      text: "pm10 and pm2.5 values dynamically updated",
+				    },
+			    legend: {
+				      display: true,
+				      labels: {
+						fontColor: "#BBE1FA",
+					      }
+				    },
+			    scales: {
+				      xAxes: [{
+						gridLines: {
+							  display: false ,
+							  color: "#3282B8",
+							  zeroLineColor: "#3282B8",
+							},
+						ticks: {
+							  beginAtZero: true,
+							  fontColor: "#BBE1FA",
+							}
+					      }],
+				      yAxes: [{
+						gridLines: {
+							  display: true ,
+							  color: "#3282B8",
+							  zeroLineColor: "#3282B8",
+							},
+						ticks: {
+							  beginAtZero: true,
+							  fontColor: "#BBE1FA",
+							}
+					      }]
+				    }
+			  }
+		});
+
+	//setInterval( function() { addData( myChart, "", getRandomIntInclusive(20, 30), getRandomIntInclusive(5, 15) ) }, 3000);
+	setInterval( function() { addData( myChart, "", data.pm_10, data.pm_25 ) }, 3000);
+      </script>
+      <br />
+      <hline></hline>
+      <br />
+
+      <strong>Aktualisierung der Anzeige</strong><br/>
+      <div class="hflex stretched">
+	<select class="select" id="refreshRate" data-native-menu="false">
+	  <option value="1">1 Sekunde</option>
+	  <option value="5">5 Sekunden</option>
+	  <option value="30">30 Sekunden</option>
+	  <option value="60">1 Minute</option>
+	  <option value="300">5 Minuten</option>
+	  <option value="1800">30 Minuten</option>
+	</select>
+	<div class="btn refresh" type='button' id='refreshBtn'>Jetzt</div>
+      </div>
+
+      <br/>
+      <hline></hline>
+      <br/>
+
+      <strong>Datenaufzeichnung</strong><br/>
+      <div class="hflex stretched">
+	<div class="btn start" id="startBtn">Start</div>
+	<div class="btn stop" id="stoppBtn">Stop</div>
+      </div>
+
+      <br>
+      <hline></hline>
+      <br>
+
+      <strong>Weitere Informationen</strong><br/>
+      <div style="background-color:red; color:black;" id='echoerror'></div>
+      <div id='echoResultStatus'></div>
+      <div id='echoResult'></div>
+
+      <br/>
+      <hline></hline>
+      <br/>
+
+      <a href="https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub">Grenzwerte Umweltbundesamt</a>
+
+      <br/>
+    </div>
+
+    <!--
+      <strong>Stationärer Modus:</strong><br />
+      <div class="ui-grid-a">
+      <div class="ui-block-a"><button class="ui-btn ui-corner-all" type='button' id='startStatBtn' name='startStatBtn'>X</button></div>
+      <div class="ui-block-b"><button class="ui-btn ui-corner-all" type='button' id='stoppStatBtn' name='stoppStatBtn'>Y</button></div>
+      </div>
+      <br />
+      <br />
+    -->
+
+  </body>
+</html>
