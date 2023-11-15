@@ -12,10 +12,12 @@ Siehe: https://edu.qpython.org/qpython-webapp/your-first-webapp.html
 ##
 
 LOG_LEVEL = 1
-OUTDIR = '/storage/emulated/0/qpython/projects3/Feinstaubsensor-bottle/output'
+OUTDIR = '/storage/emulated/0/qpython/projects3/SDS011-Android-main/output'
 LOGFILE = OUTDIR + '/logfile.txt'
-TEMPLATEDIR = '/storage/emulated/0/qpython/projects3/Feinstaubsensor-bottle/views'
-STATICDIR = '/storage/emulated/0/qpython/projects3/Feinstaubsensor-bottle/static'
+TEMPLATEDIR = '/storage/emulated/0/qpython/projects3/SDS011-Android-main/views'
+STATICDIR = '/storage/emulated/0/qpython/projects3/SDS011-Android-main/static'
+KML_INT = 5
+SSP_UUID = '00001101-0000-1000-8000-00805F9B34FB'
 # Bluetooth MAC-Addresse des HC05/HC06-Moduls, welcher die Verbindung zum SDS011-Sensor herstellt.
 SDS011_bluetooth_device_id = '00:14:03:05:59:17'
 
@@ -347,8 +349,6 @@ class SDS001StreamReader(threading.Thread):
   def getBluetoothData(self, size):
     global error_msg
 
-    ssp_uuid = '00001101-0000-1000-8000-00805F9B34FB'
-
     buffer = ''
     while len(buffer) < size:    
       while (len(self.droid.bluetoothActiveConnections().result) == 0):
@@ -358,7 +358,7 @@ class SDS001StreamReader(threading.Thread):
 
         write_log(1, "Connecting/Reconnecting...")
         self.droid.toggleBluetoothState(True,False)
-        success = self.droid.bluetoothConnect(ssp_uuid, SDS011_bluetooth_device_id)
+        success = self.droid.bluetoothConnect(SSP_UUID, SDS011_bluetooth_device_id)
         if success.error == None:
           self.connID = success.result
           write_log(1, "Connected")
@@ -421,7 +421,7 @@ def start_sensor():
 
       # Hier wird der Intervall gesetzt wie oft ein Wert
       # in die KML Datei geschrieben werden soll
-      time.sleep(2)
+      time.sleep(KML_INT)
 
       # Nur wenn eine gueltige FIX Positon bekannt ist
       # Zeichne die GPS Daten und Feinstaubwerte in einer
