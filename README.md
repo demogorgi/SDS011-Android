@@ -12,5 +12,5 @@ This Repo contains a manual and python3 code to set up a SDS011 particulate sens
 8. Should look like this then: <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Screenshot_QPython%203L.jpg" width=20% alt="Screenshot WebApp"></div>
 9. In the output directory you will find two kml-files, a csv-file and a log-file
     * The csv file's format ist ``timestamp;pm_10;pm2.5;lat;lon``
-    * The kml-files contain a pm_10 and pm_2.5 "trajectory"
+    * The kml-files contain a pm_10 and pm_2.5 "trajectory" that can be viewed in GoogleEarth (make sure to press the "Stop"-Button in the WebApp to get vaild kml files)
     * The logfile contains some logging
