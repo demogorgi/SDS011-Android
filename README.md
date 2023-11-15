@@ -1,7 +1,7 @@
 # SDS011-Android
 This Repo contains a manual and python3 code to set up a SDS011 particulate sensor connected with the HC-06 bluetooth module under Android. The measurements are presented in a QPython 3L WebApp using the Python web framework bottle.
 
-<p align="center">It is heavily influenced by<br>https://github.com/optiprime/Feinstaubsensor</p>
+<p align="center">This project heavily influenced by<br>https://github.com/optiprime/Feinstaubsensor</p>
 
 However optiprimes code is not working under python3.x. The urge to get the setup running with QPython 3L led to this repository.
 
