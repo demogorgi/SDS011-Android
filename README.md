@@ -18,3 +18,4 @@ However optiprimes code is not working under python3.x. The urge to get the setu
     * The csv file's format ist ``timestamp;pm_10;pm2.5;lat;lon``
     * The kml-files contain a pm_10 and pm_2.5 "trajectory" that can be viewed in GoogleEarth (make sure to press the "Stop"-Button in the WebApp to get vaild kml files)
     * The logfile contains some logging
+<div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Dust-trajectory.jpg" width=30% alt=Wiring"></div>
