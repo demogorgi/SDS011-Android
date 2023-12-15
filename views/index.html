@@ -56,7 +56,7 @@
 	      $('#refreshRate').change(function() {
 		      startPeriodicRefresh($('#refreshRate').val());
 		    });
-	      startPeriodicRefresh(1);
+	      startPeriodicRefresh(10);
 
 	      $("#refreshBtn").click(function() {
 		      refreshStatus();     
@@ -92,7 +92,8 @@
 				    }
 			    });     
 		    });
-	      <!-- stationary mode
+             $("#stoppBtn").prop('disabled', true);
+             <!-- stationary mode-->
 	      $("#startStatBtn").click(function() {
 		      $(this).prop('disabled', true);
 		      $("#stoppStatBtn").prop('disabled', false);
@@ -123,9 +124,8 @@
 				    }
 			    });     
 		    });
-	      $("#stoppStatBtn").prop('disabled', true);
-	      -->
-	      $("#stoppBtn").prop('disabled', true);
+             $("#stoppStatBtn").prop('disabled', true);
+             <!---->
 	    });
     </script>
 
@@ -312,11 +312,14 @@ select {
       <div class="hflex stretched">
 	<select class="select" id="refreshRate" data-native-menu="false">
 	  <option value="1">1 Sekunde</option>
+	  <option value="2">2 Sekunden</option>
 	  <option value="5">5 Sekunden</option>
+	  <option value="10" selected>10 Sekunden</option>
 	  <option value="30">30 Sekunden</option>
 	  <option value="60">1 Minute</option>
 	  <option value="300">5 Minuten</option>
 	  <option value="1800">30 Minuten</option>
+	  <option value="3600">60 Minuten</option>
 	</select>
 	<div class="btn refresh" type='button' id='refreshBtn'>Jetzt</div>
       </div>
@@ -335,6 +338,16 @@ select {
       <hline></hline>
       <br>
 
+      <strong>Stationärer Modus</strong><br/>
+      <div class="hflex stretched">
+	<div class="btn start" id="startStatBtn">StatStart</div>
+	<div class="btn stop" id="stoppStatBtn">StatStop</div>
+      </div>
+
+      <br>
+      <hline></hline>
+      <br>
+
       <strong>Weitere Informationen</strong><br/>
       <div style="background-color:red; color:black;" id='echoerror'></div>
       <div id='echoResultStatus'></div>
@@ -344,20 +357,16 @@ select {
       <hline></hline>
       <br/>
 
+      <embed src="https://deutschland.maps.sensor.community/#16/51.4385/6.7882" style="width:95%; height:80vw;">
+
+      <br/>
+      <hline></hline>
+      <br/>
+
       <a href="https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub">Grenzwerte Umweltbundesamt</a>
 
       <br/>
     </div>
-
-    <!--
-      <strong>Stationärer Modus:</strong><br />
-      <div class="ui-grid-a">
-      <div class="ui-block-a"><button class="ui-btn ui-corner-all" type='button' id='startStatBtn' name='startStatBtn'>X</button></div>
-      <div class="ui-block-b"><button class="ui-btn ui-corner-all" type='button' id='stoppStatBtn' name='stoppStatBtn'>Y</button></div>
-      </div>
-      <br />
-      <br />
-    -->
 
   </body>
 </html>
