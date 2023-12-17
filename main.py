@@ -46,9 +46,6 @@ requests.packages.urllib3.util.ssl_.DEFAULT_CIPHERS = "TLS13-CHACHA20-POLY1305-S
 
 import kml
 
-global session
-session = None
-
 global sensing
 sensing = True
 
@@ -98,7 +95,6 @@ def write_log(level, msg):
 # Klasse um auf den GPSD Stream via Thread zuzugreifen.
 class GpsdStreamReader(threading.Thread):
   def __init__(self):
-    global session
     global g_lat, g_lng, g_utc
     threading.Thread.__init__(self)
 
@@ -111,7 +107,6 @@ class GpsdStreamReader(threading.Thread):
     self.running = True
 
   def run(self):
-    global session
     global g_lat, g_lng, g_utc
     while t_gps.running:
       # Lese den naechsten Datensatz von GPSD
@@ -138,6 +133,7 @@ class GpsdStreamReader(threading.Thread):
   def stop(self):
     self.running = False
     self.droid.stopLocating()
+    self.droid.exit()
     write_log(0, "locatingStop!")
 # Ende: Klasse um auf den GPSD Stream via Thread zuzugreifen.
 
@@ -188,7 +184,7 @@ class SDS011StreamReader(threading.Thread):
 
         pm_25 = round(readings[0]/10.0, 3)
         pm_10 = round(readings[1]/10.0, 3)
-        write_log(1, 'pm_25={}, pm_10={}'.format(pm_25, pm_10))
+        write_log(3, 'pm_25={}, pm_10={}'.format(pm_25, pm_10))
       else:
         write_log(3, "\n lastbyte {} und byte {} passen NICHT zur Erwartung {} und {}. \n".format(lastbyte, byte, exlastbyte, exbyte))
 
@@ -232,7 +228,8 @@ class SDS011StreamReader(threading.Thread):
 
   def stop(self):
     self.running = False
-    self.droid.bluetoothStop() #self.connID)
+    self.droid.bluetoothStop(self.connID)
+    self.droid.exit()
     write_log(0, "bluetoothStop!")
 # Ende: Klasse um auf den SDS011 Sensor via Thread zuzugreifen.
 
@@ -406,15 +403,23 @@ def status():
 def __exit():
   try:
     write_log(0, "exit-route!")
+    global run
+    global run_stat
     global sensing
+    run = False
+    run_stat = False
     sensing = False
-    time.sleep(2)
     t_start_sensor.join()
+    write_log(0, "sensing joined")
     t_sds011.stop()
-    t_gps.stop()
     t_sds011.join()
+    write_log(0, "sds11 joined")
+    t_gps.stop()
     t_gps.join()
-    write_log(0, "1 !...und Tschüss!")
+    write_log(0, "gps joined")
+    droid.exit()
+    write_log(0, "droid exit")
+    write_log(0, "...und Tschüss!")
   except Exception as e:
     write_log(0, "__exit-Exception: " + e)
 
@@ -432,11 +437,9 @@ if __name__ == '__main__':
     android_platform = (os.environ.get("ANDROID_ROOT") != None)
     write_log(2, "android_platform {}".format(android_platform))
 
-    write_log(1, "HALLO ANDROID?")
     droid = androidhelper.Android()
-    #droid.wakeLockAcquirePartial()
-    droid.wakeLockAcquireDim()
-    write_log(1, "HALLO ANDROID!")
+    droid.wakeLockAcquirePartial()
+    #droid.wakeLockAcquireDim()
 
     # Start des Threads der den GPS Empfaenger ausliesst.
     write_log(1, "HALLO GPS?")
@@ -450,9 +453,9 @@ if __name__ == '__main__':
     t_sds011.start()
     write_log(1, "HALLO SDS!")
 
-    # Kurze Pause um zu warten bis die beiden Threads t_gps und
-    # t_sds01 starten konnten.
-    time.sleep(3)
+    ## Kurze Pause um zu warten bis die beiden Threads t_gps und
+    ## t_sds01 starten konnten.
+    #time.sleep(3)
     write_log(1, "SENSOR GESTARTET?")
     t_start_sensor = Thread(target=start_sensor)
     t_start_sensor.start()
