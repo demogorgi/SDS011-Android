@@ -15,11 +15,12 @@ LOG_LEVEL = 1
 
 from pathlib import Path
 BASEDIR = Path(__file__).resolve().parent
-OUTDIR = BASEDIR / "output"
-OUTDIR.mkdir(parents=True, exist_ok=True)
-LOGFILE = OUTDIR / "logfile.txt"
-TEMPLATEDIR = BASEDIR / "views"
-STATICDIR   = BASEDIR / "static"
+OUTDIR_PATH = BASEDIR / "output"
+OUTDIR_PATH.mkdir(parents=True, exist_ok=True)
+OUTDIR      = str(OUTDIR_PATH)                 # <-- String, damit OUTDIR + "/..." wieder geht
+LOGFILE     = str(OUTDIR_PATH / "logfile.txt")
+TEMPLATEDIR = str(BASEDIR / "views")
+STATICDIR   = str(BASEDIR / "static")
 
 KML_INT = 5
 GPS_INT = 5
@@ -473,4 +474,5 @@ if __name__ == '__main__':
     write_log(0, "Class: " + a.__class__)
   except Exception as e:
     write_log(0, e)
+
 
