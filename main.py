@@ -12,10 +12,15 @@ Siehe: https://edu.qpython.org/qpython-webapp/your-first-webapp.html
 ##
 
 LOG_LEVEL = 1
-OUTDIR = '/storage/emulated/0/qpython/projects3/SDS011-Android-main/output'
-LOGFILE = OUTDIR + '/logfile.txt'
-TEMPLATEDIR = '/storage/emulated/0/qpython/projects3/SDS011-Android-main/views'
-STATICDIR = '/storage/emulated/0/qpython/projects3/SDS011-Android-main/static'
+
+from pathlib import Path
+BASEDIR = Path(__file__).resolve().parent
+OUTDIR = BASEDIR / "output"
+OUTDIR.mkdir(parents=True, exist_ok=True)
+LOGFILE = OUTDIR / "logfile.txt"
+TEMPLATEDIR = BASEDIR / "views"
+STATICDIR   = BASEDIR / "static"
+
 KML_INT = 5
 GPS_INT = 5
 SSP_UUID = '00001101-0000-1000-8000-00805F9B34FB'
@@ -468,3 +473,4 @@ if __name__ == '__main__':
     write_log(0, "Class: " + a.__class__)
   except Exception as e:
     write_log(0, e)
+
