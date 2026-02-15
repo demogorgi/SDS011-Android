@@ -471,8 +471,9 @@ if __name__ == '__main__':
     ### Starten des Web-Servers.
     debug(True)
     a = run(port=8080)
-    write_log(0, "Class: " + a.__class__)
+    write_log(0, "Class: " + str(type(a)))
   except Exception as e:
-    write_log(0, e)
+    write_log(0, "__exit-Exception: " + str(e))
+
 
 
