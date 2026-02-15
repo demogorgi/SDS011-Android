@@ -339,7 +339,7 @@ from bottle import get, run, template, static_file, debug, route
 
 @route('/')
 def index():
-  return template(TEMPLATEDIR + '/index.html', static_url=static_file)
+  return template('index.html', lookup=[TEMPLATEDIR])
 
 @route('/static/<filename:path>')
 def serve_static(filename):
