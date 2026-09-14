@@ -32,15 +32,16 @@ from state import AppState
 
 
 def build_threads(state):
-    """Legt die drei Arbeits-Threads an."""
+    """Legt die drei Arbeits-Threads an und liefert den Transport mit,
+    damit die Weboberflaeche die Geraeteliste abfragen kann."""
     gps_source = gps.create_gps(state)
     gps_reader = gps.GpsReader(state, gps_source)
 
-    sensor_transport = transport.create_transport(state)
+    sensor_transport = transport.create_transport()
     sensor_reader = sensor.SensorReader(state, sensor_transport)
 
     recorder = Recorder(state)
-    return gps_reader, sensor_reader, recorder
+    return gps_reader, sensor_reader, recorder, sensor_transport
 
 
 def main():
@@ -58,7 +59,7 @@ def main():
         droid = androidhelper.Android()
         droid.wakeLockAcquirePartial()
 
-    gps_reader, sensor_reader, recorder = build_threads(state)
+    gps_reader, sensor_reader, recorder, sensor_transport = build_threads(state)
 
     srv = StoppableWSGIRefServer(host=config.HTTP_HOST, port=config.http_port())
 
@@ -103,7 +104,8 @@ def main():
     recorder.start()
     write_log(1, 'Threads gestartet')
 
-    app = webapp.create_app(state, on_shutdown=shutdown)
+    app = webapp.create_app(state, on_shutdown=shutdown,
+                            transport=sensor_transport)
     try:
         bottle.run(app=app, server=srv)
     except KeyboardInterrupt:

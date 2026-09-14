@@ -128,7 +128,9 @@ class TemplateTest(unittest.TestCase):
 
         app = webapp.create_app(AppState())
         known = set(route.rule for route in app.routes)
-        called = set(re.findall(r'\$SCRIPT_ROOT \+ "([^"]+)"', self.html))
+        # Query-String abschneiden: /connect/?device= ist die Route /connect/
+        called = set(path.split('?')[0] for path in
+                     re.findall(r'\$SCRIPT_ROOT \+ "([^"]+)"', self.html))
         self.assertTrue(called, 'keine Routen im Template gefunden')
         for path in called:
             self.assertIn(path, known, 'Route fehlt im Backend: %s' % path)

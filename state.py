@@ -17,6 +17,15 @@ import threading
 _UTC = getattr(datetime, 'timezone', None)
 
 
+# Verbindungszustand des Sensors. Frueher war nicht unterscheidbar,
+# ob der Sensor fehlt oder 0 ug/m3 misst -- beides sah in der
+# Oberflaeche gleich aus.
+CONN_DISCONNECTED = u'getrennt'
+CONN_CONNECTING = u'verbinde'
+CONN_CONNECTED = u'verbunden'
+CONN_RETRYING = u'wartet auf naechsten Versuch'
+
+
 def utcnow():
     """Naives UTC-Datum -- auf beiden Python-Generationen warnungsfrei."""
     if _UTC is not None:
@@ -43,6 +52,15 @@ class AppState(object):
         self._utc = utcnow()
         self._status_text = u'inaktiv'
         self._error_msg = u''
+
+        # Verbindung. 'wanted' ist der Wunsch des Benutzers, der Rest
+        # beschreibt, wo der Verbindungsaufbau gerade steht. Das
+        # Verbinden ist explizit, das Verbunden-bleiben automatisch.
+        self.connection_wanted = False
+        self._connection = CONN_DISCONNECTED
+        self._connection_error = u''
+        self._device = None
+        self._device_name = u''
 
     # -- Messwerte ----------------------------------------------------
     def set_measurement(self, pm_25, pm_10):
@@ -88,6 +106,32 @@ class AppState(object):
         with self._lock:
             return self._error_msg
 
+    # -- Verbindung ---------------------------------------------------
+    def set_connection(self, conn_state, error=None):
+        with self._lock:
+            self._connection = conn_state
+            if error is not None:
+                self._connection_error = error
+            elif conn_state == CONN_CONNECTED:
+                self._connection_error = u''
+
+    def connection(self):
+        with self._lock:
+            return (self._connection, self._connection_error)
+
+    def is_connected(self):
+        with self._lock:
+            return self._connection == CONN_CONNECTED
+
+    def set_device(self, device_id, name=u''):
+        with self._lock:
+            self._device = device_id
+            self._device_name = name
+
+    def device(self):
+        with self._lock:
+            return (self._device, self._device_name)
+
     # -- Fuer die /status/-Route --------------------------------------
     def snapshot(self):
         """Ein konsistenter Blick auf alles, was das Frontend braucht."""
@@ -102,6 +146,11 @@ class AppState(object):
                 'error_msg': self._error_msg,
                 'recording': self.recording,
                 'stationary': self.stationary,
+                'connection': self._connection,
+                'connection_error': self._connection_error,
+                'connection_wanted': self.connection_wanted,
+                'device': self._device,
+                'device_name': self._device_name,
             }
 
     # -- Lebenszyklus -------------------------------------------------
@@ -111,6 +160,7 @@ class AppState(object):
         return self.stop_event.wait(seconds)
 
     def shutdown(self):
+        self.connection_wanted = False
         self.recording = False
         self.stationary = False
         self.sensing = False

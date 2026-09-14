@@ -10,14 +10,14 @@ from __future__ import absolute_import
 
 import threading
 
-from bottle import Bottle, static_file, template
+from bottle import Bottle, request, static_file, template
 
 import config
 import kml
 from logging_util import write_log
 
 
-def create_app(state, on_shutdown=None):
+def create_app(state, on_shutdown=None, transport=None):
     app = Bottle()
 
     @app.route('/')
@@ -27,6 +27,49 @@ def create_app(state, on_shutdown=None):
     @app.route('/static/<filename:path>')
     def serve_static(filename):
         return static_file(filename, root=config.STATICDIR)
+
+    # -- Sensorverbindung ---------------------------------------------
+    @app.route('/devices/')
+    def devices():
+        """Gekoppelte Geraete zur Auswahl. Damit muss die MAC-Adresse
+        nicht mehr im Quelltext stehen."""
+        found = []
+        if transport is not None:
+            try:
+                found = transport.available_devices()
+            except Exception as exc:
+                write_log(0, 'Geraeteliste nicht lesbar: {0}'.format(exc))
+                state.report_error(u'Geraeteliste nicht lesbar: {0}'.format(exc))
+        selected, _ = state.device()
+        if selected is None and found:
+            selected = found[0]['id']
+        return {'devices': found, 'selected': selected}
+
+    @app.route('/connect/')
+    def connect():
+        device_id = request.query.get('device') or None
+        name = u''
+        if device_id and transport is not None:
+            try:
+                for entry in transport.available_devices():
+                    if entry['id'] == device_id:
+                        name = entry['name']
+                        break
+            except Exception:
+                pass
+        if device_id:
+            state.set_device(device_id, name)
+        # Der eigentliche Verbindungsaufbau passiert im SensorReader --
+        # die Route blockiert nicht, sie aeussert nur den Wunsch.
+        state.connection_wanted = True
+        write_log(1, 'Verbindung angefordert: {0}'.format(device_id or 'Standard'))
+        return {'value': u'Verbindung wird aufgebaut...'}
+
+    @app.route('/disconnect/')
+    def disconnect():
+        state.connection_wanted = False
+        write_log(1, 'Trennung angefordert')
+        return {'value': u'Verbindung getrennt.'}
 
     @app.route('/start/')
     def start_measure():
@@ -73,6 +116,11 @@ def create_app(state, on_shutdown=None):
             # Reload stimmte er sonst nicht mehr.
             'recording': snap['recording'],
             'stationary': snap['stationary'],
+            'connection': snap['connection'],
+            'connection_error': snap['connection_error'],
+            'connection_wanted': snap['connection_wanted'],
+            'device': snap['device'] or '',
+            'device_name': snap['device_name'],
         }
         return ret_data
 

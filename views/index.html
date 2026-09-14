@@ -40,6 +40,49 @@
         setEnabled("#stoppStatBtn", data.stationary);
       }
 
+      function loadDevices() {
+        $.ajax({
+          type: "GET",
+          url: $SCRIPT_ROOT + "/devices/",
+          dataType: "json",
+          success: function(data) {
+            var sel = $("#deviceSelect");
+            sel.empty();
+            if (!data.devices.length) {
+              sel.append($('<option>').attr('value', '').text('kein Gerät gefunden'));
+              return;
+            }
+            $.each(data.devices, function(i, d) {
+              sel.append($('<option>').attr('value', d.id).text(d.name));
+            });
+            if (data.selected) { sel.val(data.selected); }
+          },
+          error: function() {
+            $('#echoerror').text("Geräteliste nicht abrufbar.");
+          }
+        });
+      }
+
+      function applyConnection(data) {
+        var box = $('#echoconnection');
+        var text = data.connection;
+        if (data.device_name) { text += " – " + data.device_name; }
+        else if (data.device) { text += " – " + data.device; }
+        if (data.connection_error) { text += " (" + data.connection_error + ")"; }
+        box.text(text);
+        box.removeClass('an aus warte');
+        if (data.connection === 'verbunden') { box.addClass('an'); }
+        else if (data.connection_wanted) { box.addClass('warte'); }
+        else { box.addClass('aus'); }
+
+        setEnabled("#connectBtn", !data.connection_wanted);
+        setEnabled("#disconnectBtn", data.connection_wanted);
+        // Solange verbunden wird, soll die Auswahl nicht wandern.
+        if (data.connection_wanted && data.device) {
+          $("#deviceSelect").val(data.device);
+        }
+      }
+
       function refreshStatus() {
         $.ajax({
           type: "GET",
@@ -55,6 +98,7 @@
             $('#echopm_25').css("background-color", data.pm_25_color);
             $('#echoerror').text(data.error_msg);
             applyMode(data);
+            applyConnection(data);
             addData( myChart, "", data.pm_10, data.pm_25 );
           },
           error: function() {
@@ -66,10 +110,12 @@
       };
 
       function periodicRefresh() {
-	      refreshStatus();
-
-	      setTimeout(periodicRefresh, refreshInterval);
-	    };
+        refreshStatus();
+        // Handle merken: sonst kann startPeriodicRefresh() die laufende
+        // Kette nicht abbrechen und jede Aenderung der Aktualisierungs-
+        // rate startet eine zusaetzliche Kette, die nie endet.
+        refreshTimer = setTimeout(periodicRefresh, refreshInterval);
+      };
 
       function startPeriodicRefresh(seconds) {
 	      if (refreshTimer)
@@ -110,12 +156,31 @@
           refreshStatus();
         });
 
+        $("#connectBtn").click(function() {
+          if ($(this).hasClass('off')) { return; }
+          var device = $("#deviceSelect").val() || '';
+          $.ajax({
+            type: "GET",
+            url: $SCRIPT_ROOT + "/connect/?device=" + encodeURIComponent(device),
+            dataType: "json",
+            success: function(data) {
+              $('#echoResult').text(data.value);
+              refreshStatus();
+            },
+            error: function() {
+              $('#echoerror').text("Verbinden konnte nicht angestoßen werden.");
+            }
+          });
+        });
+        modeButton("#disconnectBtn", "/disconnect/");
+
         modeButton("#startBtn", "/start/");
         modeButton("#stoppBtn", "/stopp/");
         modeButton("#startStatBtn", "/staton/");
         modeButton("#stoppStatBtn", "/statoff/");
 
         // Sofort einmal lesen, damit die Buttons von Anfang an stimmen.
+        loadDevices();
         refreshStatus();
       });
     </script>
@@ -145,6 +210,13 @@ strong { text-align: center; }
    die disabled-Eigenschaft keinerlei Darstellungswirkung hat --
    der Zustand war deshalb unsichtbar. */
 .btn.off { opacity: 0.3; cursor: default; }
+/* Verbindungszustand. Ohne diese Anzeige war nicht unterscheidbar,
+   ob der Sensor fehlt oder ob er 0 ug/m3 misst. */
+.conn { text-align: center; padding: 0.3em; margin-top: 0.4em; border-radius: 6px; }
+.conn.an { background-color: #14532d; color: #86efac; }
+.conn.aus { background-color: #3f3f46; color: #d4d4d8; }
+.conn.warte { background-color: #78350f; color: #fcd34d; }
+.select { width: 33.3%; }
 .btn.start { background-color: #0F4C75; width: 30%; }
 .btn.stop { background-color: #3282B8; width: 30% }
 .btn.refresh { background-color: #3282B8; width: 30% }
@@ -319,6 +391,18 @@ select {
 	</select>
 	<div class="btn refresh" type='button' id='refreshBtn'>Jetzt</div>
       </div>
+
+      <br/>
+      <hline></hline>
+      <br/>
+
+      <strong>Sensor</strong><br/>
+      <div class="hflex stretched">
+	<select class="select" id="deviceSelect"></select>
+	<div class="btn start" id="connectBtn">Verbinden</div>
+	<div class="btn stop" id="disconnectBtn">Trennen</div>
+      </div>
+      <div id="echoconnection" class="conn"></div>
 
       <br/>
       <hline></hline>

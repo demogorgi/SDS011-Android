@@ -13,11 +13,19 @@ from state import AppState
 
 
 def call(app, path, method='GET'):
-    """Ruft die WSGI-App direkt auf und liefert (status, body-dict)."""
+    """Ruft die WSGI-App direkt auf und liefert (status, body-dict).
+
+    Query-String gehoert nach QUERY_STRING, nicht in PATH_INFO -- sonst
+    findet bottle die Route nicht.
+    """
+    if '?' in path:
+        path, query = path.split('?', 1)
+    else:
+        query = ''
     environ = {
         'REQUEST_METHOD': method,
         'PATH_INFO': path,
-        'QUERY_STRING': '',
+        'QUERY_STRING': query,
         'SERVER_NAME': 'testhost',
         'SERVER_PORT': '8080',
         'SERVER_PROTOCOL': 'HTTP/1.1',
@@ -77,7 +85,9 @@ class RouteTest(unittest.TestCase):
         self.assertTrue(status.startswith('200'))
         for key in ('value', 'lat', 'lon', 'pm_10', 'pm_10_color',
                     'pm_25', 'pm_25_color', 'error_msg',
-                    'recording', 'stationary'):
+                    'recording', 'stationary', 'connection',
+                    'connection_error', 'connection_wanted',
+                    'device', 'device_name'):
             self.assertIn(key, payload)
         self.assertEqual(payload['lat'], '51.43850')
         self.assertEqual(payload['pm_10'].strip(), '45.6')
@@ -127,6 +137,80 @@ class RouteTest(unittest.TestCase):
         status, body = call(self.app, '/')
         self.assertTrue(status.startswith('200'))
         self.assertIn(b'Feinstaub', body)
+
+
+class ConnectionRouteTest(unittest.TestCase):
+
+    def setUp(self):
+        from transport import FakeTransport
+        self.state = AppState()
+        self.transport = FakeTransport()
+        self.app = webapp.create_app(self.state, transport=self.transport)
+
+    def test_devices_lists_transport_devices(self):
+        status, payload = call(self.app, '/devices/')
+        self.assertTrue(status.startswith('200'))
+        self.assertTrue(payload['devices'])
+        self.assertIn('id', payload['devices'][0])
+        self.assertIn('name', payload['devices'][0])
+        # Ohne Auswahl wird das erste Geraet vorgeschlagen.
+        self.assertEqual(payload['selected'], payload['devices'][0]['id'])
+
+    def test_devices_without_transport(self):
+        app = webapp.create_app(AppState())
+        status, payload = call(app, '/devices/')
+        self.assertTrue(status.startswith('200'))
+        self.assertEqual(payload['devices'], [])
+
+    def test_devices_survives_broken_transport(self):
+        """Eine kaputte Geraeteliste darf die Seite nicht mitreissen."""
+        class Broken(object):
+            def available_devices(self):
+                raise RuntimeError('Bluetooth aus')
+
+        app = webapp.create_app(self.state, transport=Broken())
+        status, payload = call(app, '/devices/')
+        self.assertTrue(status.startswith('200'))
+        self.assertEqual(payload['devices'], [])
+        self.assertIn(u'Bluetooth aus', self.state.error())
+
+    def test_connect_sets_wish_and_device(self):
+        self.assertFalse(self.state.connection_wanted)
+        device = self.transport.available_devices()[1]
+        status, payload = call(self.app, '/connect/?device=' + device['id'])
+        self.assertTrue(status.startswith('200'))
+        self.assertTrue(self.state.connection_wanted)
+        self.assertEqual(self.state.device(), (device['id'], device['name']))
+
+    def test_connect_does_not_block(self):
+        """Die Route aeussert nur den Wunsch -- der Aufbau passiert im
+        SensorReader. Sonst haengt die Antwort am Verbindungsversuch."""
+        import time
+        start = time.time()
+        call(self.app, '/connect/?device=x')
+        self.assertLess(time.time() - start, 1.0)
+
+    def test_disconnect_clears_wish(self):
+        call(self.app, '/connect/')
+        self.assertTrue(self.state.connection_wanted)
+        call(self.app, '/disconnect/')
+        self.assertFalse(self.state.connection_wanted)
+
+    def test_status_reports_connection(self):
+        status, payload = call(self.app, '/status/')
+        self.assertEqual(payload['connection'], u'getrennt')
+        self.assertFalse(payload['connection_wanted'])
+
+        call(self.app, '/connect/')
+        self.state.set_connection(u'verbunden')
+        status, payload = call(self.app, '/status/')
+        self.assertEqual(payload['connection'], u'verbunden')
+        self.assertTrue(payload['connection_wanted'])
+
+    def test_shutdown_clears_connection_wish(self):
+        call(self.app, '/connect/')
+        self.state.shutdown()
+        self.assertFalse(self.state.connection_wanted)
 
 
 if __name__ == '__main__':
