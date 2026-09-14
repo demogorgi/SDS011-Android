@@ -3,6 +3,7 @@
 
 from __future__ import absolute_import
 
+import socket
 import threading
 import time
 import unittest
@@ -131,6 +132,44 @@ class ConcurrencyTest(StoppableServerTest):
         self.assertLess(fast_elapsed, SLOW_SECONDS * 0.7,
                         'schnelle Anfrage musste auf die langsame warten: %.2fs'
                         % fast_elapsed)
+
+
+class HttpsAttemptTest(StoppableServerTest):
+    """Chrome stuft Adressen gern selbsttaetig auf https hoch. Der
+    Browser meldet dann "hat eine ungueltige Antwort gesendet" -- und
+    ohne diesen Zweig blieb die Konsole stumm, der Server wartete auf
+    eine Anfragezeile, die nie kommt."""
+
+    def _send_client_hello(self):
+        sock = socket.create_connection(('127.0.0.1', self.srv.port), timeout=5)
+        try:
+            # Anfang eines TLS-ClientHello, ohne Escape-Sequenzen
+            # zusammengesetzt.
+            hello = server._TLS_HANDSHAKE + bytes(bytearray(
+                [3, 1, 0, 47] + [1] * 40))
+            sock.sendall(hello)
+            sock.settimeout(5)
+            return sock.recv(200)
+        finally:
+            sock.close()
+
+    def test_connection_is_closed_promptly(self):
+        start = time.time()
+        answer = self._send_client_hello()
+        self.assertEqual(answer, b'', 'Server hat auf TLS geantwortet')
+        self.assertLess(time.time() - start, 4,
+                        'Server haengt am TLS-Handshake statt aufzulegen')
+
+    def test_server_keeps_working_afterwards(self):
+        self._send_client_hello()
+        body = urlopen(self._url('/ping'), timeout=10).read()
+        self.assertIn(b'ok', body)
+
+    def test_normal_requests_are_unaffected(self):
+        """HTTP-Methoden beginnen immer mit einem Buchstaben, nie mit
+        0x16 -- die Erkennung darf nichts Echtes abweisen."""
+        for path in ('/ping', '/ping', '/ping'):
+            self.assertIn(b'ok', urlopen(self._url(path), timeout=10).read())
 
 
 class StopBeforeStartTest(unittest.TestCase):

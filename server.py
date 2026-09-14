@@ -9,6 +9,8 @@ dadurch mit jeder bottle-Version, die auf dem Geraet installiert ist.
 
 from __future__ import absolute_import
 
+import socket
+import sys
 import threading
 
 try:                                  # Python 3
@@ -19,6 +21,10 @@ except ImportError:                   # Python 2
 from bottle import ServerAdapter
 
 from logging_util import write_log
+
+# Erstes Byte eines TLS-ClientHello. Ein Browser, der https://
+# zu dieser Anwendung spricht, schickt genau das.
+_TLS_HANDSHAKE = b'\x16'
 
 
 class StoppableWSGIRefServer(ServerAdapter):
@@ -60,8 +66,14 @@ class StoppableWSGIRefServer(ServerAdapter):
             block_on_close = False
 
         quiet = self.quiet
+        server_host = 'localhost' if self.host in ('0.0.0.0', '') else self.host
+        server_port = self.port
 
         class FixedHandler(WSGIRequestHandler):
+
+            # Ohne Zeitlimit bleibt eine angefangene Verbindung, die nie
+            # eine vollstaendige Anfrage schickt, fuer immer offen.
+            timeout = 30
 
             def address_string(self):
                 # Keine Rueckwaertsaufloesung -- auf dem Handy sonst
@@ -71,6 +83,32 @@ class StoppableWSGIRefServer(ServerAdapter):
             def log_request(self, *args, **kwargs):
                 if not quiet:
                     return WSGIRequestHandler.log_request(self, *args, **kwargs)
+
+            def handle(self):
+                # Ein TLS-Handshake beginnt mit 0x16. Genau den schickt
+                # ein Browser, der https:// zu dieser Anwendung spricht --
+                # etwa weil Chrome die Adresse selbsttaetig hochstuft.
+                # Ohne diesen Zweig wartet der Server auf eine
+                # Anfragezeile, die nie kommt: der Browser meldet "hat
+                # eine ungueltige Antwort gesendet", die Konsole bleibt
+                # stumm, und niemand kommt darauf.
+                try:
+                    first = self.connection.recv(1, socket.MSG_PEEK)
+                except Exception:
+                    first = b''
+                if first[:1] == _TLS_HANDSHAKE:
+                    hint = (u'HTTPS-Versuch von %s abgewiesen. Diese Anwendung '
+                            u'spricht nur HTTP -- bitte http://%s:%d/ aufrufen '
+                            u'(mit http:// davor).'
+                            % (self.client_address[0], server_host, server_port))
+                    write_log(0, hint)
+                    try:
+                        sys.stderr.write(hint + u'\n')
+                    except Exception:
+                        pass
+                    self.close_connection = True
+                    return
+                return WSGIRequestHandler.handle(self)
 
         self.srv = make_server(self.host, self.port, app,
                                ThreadingWSGIServer, FixedHandler)
