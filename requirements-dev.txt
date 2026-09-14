@@ -1,0 +1,5 @@
+# Entwicklung am PC (Fake-Hardware, kein androidhelper noetig).
+# Auf dem Geraet wird nur bottle gebraucht, requests nur fuer den
+# stationaeren Modus.
+bottle
+requests
