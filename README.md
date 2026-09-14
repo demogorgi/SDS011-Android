@@ -63,12 +63,36 @@ ohne zusaetzliche Pakete:
 python -m unittest discover -s tests -t .
 ```
 
-Der Python-2-Syntaxcheck wird uebersprungen, wenn kein Python 2 gefunden
-wird. Mit einem vorhandenen Interpreter laeuft er echt:
+Zwei Testgruppen ueberspringen sich selbst, wenn ihre Voraussetzungen
+fehlen:
 
-```
-PYTHON2=C:\Python27\python.exe python -m unittest tests.test_py2_compat
-```
+* **Python-2-Syntaxcheck** -- uebersetzt alle Module mit einem
+  Python-2-Interpreter, sofern einer gefunden wird:
+
+  ```
+  PYTHON2=C:\Python27\python.exe python -m unittest tests.test_py2_compat
+  ```
+
+* **Browsertests** -- steuern die Oberflaeche mit einem echten Browser und
+  pruefen, was statisch nicht sichtbar ist: ob ein gesperrter Button auch
+  wirklich anders aussieht, ob ein Klick beim Server ankommt, ob die Seite
+  fehlerfrei laedt.
+
+  ```
+  python -m unittest tests.test_frontend_browser
+  ```
+
+  Zwei Stolpersteine, falls das bei dir nicht laeuft: Playwrights
+  **Sync-API stuerzt auf Python 3.14 ab** (sie haengt an greenlet), deshalb
+  benutzt `tests/browsercheck.py` die Async-API. Und Playwrights eigenes
+  Chromium ist oft nicht heruntergeladen, deshalb laeuft der Test ueber den
+  System-Chrome (`channel='chrome'`). Entweder Chrome installiert haben
+  oder einmal `python -m playwright install chromium` ausfuehren und den
+  `channel`-Parameter entfernen.
+
+Die Browsersteuerung liegt bewusst in `tests/browsercheck.py` und laeuft
+als eigener Prozess -- deren `async`-Syntax wuerde die Testsuite unter
+Python 2 schon beim Einsammeln zerlegen.
 
 ### Aufbau
 

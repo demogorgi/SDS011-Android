@@ -1,0 +1,146 @@
+# -*- coding: utf-8 -*-
+"""Oberflaechentests mit einem echten Browser.
+
+Wird uebersprungen, wenn Playwright oder ein Chrome fehlen -- wie beim
+Python-2-Check. Die Browsersteuerung selbst liegt in
+tests/browsercheck.py und laeuft als eigener Prozess: dessen
+async-Syntax wuerde die Suite unter Python 2 beim Einsammeln zerlegen.
+
+Diese Tests fangen genau das, was die statischen Pruefungen in
+test_frontend.py nicht sehen koennen -- ob eine Zustandsaenderung im
+Browser auch tatsaechlich sichtbar wird.
+"""
+
+from __future__ import absolute_import
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import unittest
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HELPER = os.path.join(REPO, 'tests', 'browsercheck.py')
+
+
+def free_port():
+    sock = socket.socket()
+    try:
+        sock.bind(('127.0.0.1', 0))
+        return str(sock.getsockname()[1])
+    finally:
+        sock.close()
+
+
+def playwright_available():
+    """Prueft Playwright und einen startbaren Browser in einem eigenen
+    Prozess -- ein fehlender Browser soll die Suite nicht mitreissen."""
+    code = (
+        'import asyncio, sys\n'
+        'from playwright.async_api import async_playwright\n'
+        'async def go():\n'
+        '    async with async_playwright() as p:\n'
+        '        b = await p.chromium.launch(channel="chrome")\n'
+        '        await b.close()\n'
+        'asyncio.run(go())\n'
+    )
+    try:
+        proc = subprocess.Popen([sys.executable, '-c', code],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc.communicate()
+        return proc.returncode == 0
+    except (OSError, IOError):
+        return False
+
+
+_RESULT = {}
+
+
+def browser_result():
+    """Laeuft einmal pro Testlauf, nicht pro Testmethode."""
+    if 'value' in _RESULT:
+        return _RESULT['value']
+    env = dict(os.environ, SDS011_PORT=free_port())
+    proc = subprocess.Popen([sys.executable, HELPER], cwd=REPO, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = proc.communicate()
+    if proc.returncode != 0:
+        raise AssertionError('browsercheck.py fehlgeschlagen:\n%s'
+                             % err.decode('utf-8', 'replace')[-2000:])
+    _RESULT['value'] = json.loads(out.decode('utf-8'))
+    return _RESULT['value']
+
+
+class BrowserTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        if sys.version_info[0] < 3:
+            raise unittest.SkipTest('Playwright braucht Python 3')
+        try:
+            import playwright            # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest('playwright nicht installiert')
+        if not playwright_available():
+            raise unittest.SkipTest('kein startbarer Chrome fuer Playwright')
+        cls.result = browser_result()
+
+    # -- JavaScript ---------------------------------------------------
+    def test_no_javascript_errors(self):
+        """Frueher warf setInterval alle 3 Sekunden einen ReferenceError."""
+        self.assertEqual(self.result['page_errors'], [])
+
+    # -- Sichtbarer Zustand der Buttons -------------------------------
+    def test_disabled_button_is_visibly_different(self):
+        """Der eigentliche Punkt: prop('disabled') an einem <div> aendert
+        die Darstellung nicht -- der Zustand war unsichtbar."""
+        active = self.result['before']['startBtn']
+        blocked = self.result['after_start']['startBtn']
+
+        self.assertFalse(active['off'])
+        self.assertTrue(blocked['off'])
+        self.assertLess(blocked['opacity'], active['opacity'],
+                        'gesperrter Button sieht aus wie ein aktiver')
+        self.assertEqual(blocked['cursor'], 'default')
+        self.assertEqual(active['cursor'], 'pointer')
+
+    def test_aria_disabled_is_set(self):
+        self.assertEqual(self.result['before']['startBtn']['aria'], 'false')
+        self.assertEqual(self.result['after_start']['startBtn']['aria'], 'true')
+
+    def test_start_and_stopp_are_mutually_exclusive(self):
+        before = self.result['before']
+        after = self.result['after_start']
+        self.assertTrue(before['stoppBtn']['off'])
+        self.assertFalse(before['startBtn']['off'])
+        self.assertFalse(after['stoppBtn']['off'])
+        self.assertTrue(after['startBtn']['off'])
+
+    # -- Verhalten ----------------------------------------------------
+    def test_click_reaches_the_server(self):
+        self.assertFalse(self.result['before']['server_recording'])
+        self.assertTrue(self.result['after_start']['server_recording'])
+        self.assertEqual(self.result['after_start']['start_calls'], 1)
+        self.assertFalse(self.result['after_stop']['server_recording'])
+
+    def test_second_click_is_swallowed(self):
+        self.assertEqual(self.result['second_click_calls'], 0,
+                         'gesperrter Button loest trotzdem aus')
+
+    def test_state_survives_reload(self):
+        """Frueher wurde der Buttonzustand nur im Klick-Handler gesetzt
+        und stimmte nach einem Reload nicht mehr."""
+        after = self.result['after_reload']
+        self.assertTrue(after['server_recording'])
+        self.assertTrue(after['startBtn']['off'])
+
+    # -- Chart --------------------------------------------------------
+    def test_chart_receives_data(self):
+        chart = self.result['chart']
+        self.assertGreater(chart['after'], chart['before'])
+        self.assertLessEqual(chart['after'], chart['max_points'])
+
+
+if __name__ == '__main__':
+    unittest.main()

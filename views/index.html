@@ -25,11 +25,19 @@
 
       // Buttons aus dem Serverzustand ableiten, nicht aus dem letzten
       // Klick -- nach einem Reload stimmte die Anzeige sonst nicht mehr.
+      // Ueber eine CSS-Klasse statt ueber prop('disabled'): an einem
+      // <div> ist disabled nur eine JavaScript-Eigenschaft, sie ist im
+      // DOM nicht sichtbar und veraendert die Darstellung nicht.
+      function setEnabled(selector, enabled) {
+        $(selector).toggleClass('off', !enabled)
+                   .attr('aria-disabled', enabled ? 'false' : 'true');
+      }
+
       function applyMode(data) {
-        $("#startBtn").prop('disabled', data.recording);
-        $("#stoppBtn").prop('disabled', !data.recording);
-        $("#startStatBtn").prop('disabled', data.stationary);
-        $("#stoppStatBtn").prop('disabled', !data.stationary);
+        setEnabled("#startBtn", !data.recording);
+        setEnabled("#stoppBtn", data.recording);
+        setEnabled("#startStatBtn", !data.stationary);
+        setEnabled("#stoppStatBtn", data.stationary);
       }
 
       function refreshStatus() {
@@ -76,7 +84,7 @@
       // uebernehmen. applyMode() setzt die Buttons, nicht der Handler.
       function modeButton(id, path) {
         $(id).click(function() {
-          if ($(this).prop('disabled')) { return; }
+          if ($(this).hasClass('off')) { return; }
           $.ajax({
             type: "GET",
             url: $SCRIPT_ROOT + path,
@@ -133,6 +141,10 @@ strong { text-align: center; }
 .stretched { align-items: stretch; justify-content: space-between; align-content: stretch; }
 
 .btn { cursor: pointer; display: inline-block; padding: 0.5em; border-radius: 10%; text-align: center; color: #BBE1FA }
+/* Gesperrter Button. Die Buttons sind <div>-Elemente, an denen
+   die disabled-Eigenschaft keinerlei Darstellungswirkung hat --
+   der Zustand war deshalb unsichtbar. */
+.btn.off { opacity: 0.3; cursor: default; }
 .btn.start { background-color: #0F4C75; width: 30%; }
 .btn.stop { background-color: #3282B8; width: 30% }
 .btn.refresh { background-color: #3282B8; width: 30% }

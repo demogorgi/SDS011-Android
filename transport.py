@@ -9,6 +9,7 @@ das Programm ohne Geraet am PC laeuft.
 from __future__ import absolute_import
 
 import base64
+import random
 import time
 
 import config
@@ -113,13 +114,35 @@ class AndroidBluetoothTransport(Transport):
 
 
 class FakeTransport(Transport):
-    """Simulierter Sensor: erzeugt etwa jede Sekunde ein gueltiges Paket.
+    """Simulierter Sensor.
 
-    Mit noise=True kommt zwischen den Paketen Muell, um die
+    Die Werte sind bewusst verrauscht statt glatt. Eine perfekt
+    gleichmaessige Messreihe ist in echten Feinstaubdaten ein Hinweis auf
+    einen defekten Sensor -- eine Simulation, die so aussieht, traegt die
+    falsche Erwartung ins Frontend und laesst die Grenzwertfarben nie
+    ausloesen.
+
+    Modelliert wird:
+      * eine langsam driftende Grundlast (Random Walk)
+      * die Grobfraktion, die den Abstand zwischen PM2.5 und PM10 macht
+      * gelegentliche kurze Spitzen (vorbeifahrendes Auto, Baustelle),
+        die vor allem PM10 hochziehen
+
+    Physikalisch gilt immer PM10 >= PM2.5, weil PM10 die feineren
+    Partikel einschliesst. Das haelt die Simulation ein.
+
+    seed sorgt fuer Reproduzierbarkeit: derselbe Startwert ergibt
+    dieselbe Messreihe. seed=None wuerfelt bei jedem Lauf neu.
+
+    Mit noise=True kommt zusaetzlich Muell zwischen die Pakete, um die
     Resynchronisation des FrameDecoders zu ueben.
     """
 
-    def __init__(self, interval=1.0, noise=False, clock=time.time):
+    # Messbereich des SDS011.
+    MIN_VALUE = 0.0
+    MAX_VALUE = 999.9
+
+    def __init__(self, interval=1.0, noise=False, clock=time.time, seed=42):
         self._interval = interval
         self._noise = noise
         self._clock = clock
@@ -127,12 +150,39 @@ class FakeTransport(Transport):
         self._next_frame = self._clock()
         self._step = 0
 
+        self._random = random.Random(seed)
+        # Ruhige Grundlast, wie sie an einem normalen Tag anliegt.
+        self._base = 9.0
+        self._spike_left = 0
+        self._spike_height = 0.0
+
     def _values(self):
-        """Zwei langsam schwingende, plausible Messreihen."""
         self._step += 1
-        pm_25 = round(8.0 + 6.0 * (self._step % 20) / 20.0, 1)
-        pm_10 = round(18.0 + 14.0 * (self._step % 13) / 13.0, 1)
-        return pm_25, pm_10
+        rnd = self._random
+
+        # Grundlast driftet langsam, bleibt aber in plausiblen Grenzen.
+        self._base += rnd.gauss(0.0, 0.35)
+        self._base = max(3.0, min(30.0, self._base))
+
+        # Spitzen laufen ueber einige Sekunden aus.
+        if self._spike_left > 0:
+            self._spike_left -= 1
+        elif rnd.random() < 0.04:
+            self._spike_left = rnd.randint(3, 10)
+            self._spike_height = rnd.uniform(10.0, 40.0)
+        spike = self._spike_height * self._spike_left / 10.0
+
+        pm_25 = self._base + rnd.gauss(0.0, 0.4) + spike * 0.35
+        # Grobfraktion: der Anteil, der nur in PM10 steckt.
+        coarse = self._base * rnd.uniform(0.5, 1.3) + spike
+        pm_10 = pm_25 + max(0.0, coarse)
+
+        return (self._clamp(pm_25), self._clamp(pm_10))
+
+    def _clamp(self, value):
+        value = max(self.MIN_VALUE, min(self.MAX_VALUE, value))
+        # Der Sensor liefert Zehntel.
+        return round(value, 1)
 
     def read(self, max_bytes):
         now = self._clock()

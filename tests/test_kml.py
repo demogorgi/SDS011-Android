@@ -78,7 +78,8 @@ class FileOutputTest(unittest.TestCase):
 
     def test_kml_uses_unix_line_endings(self):
         path = self._write_track()
-        self.assertNotIn(b'\r\n', io.open(path, 'rb').read())
+        with io.open(path, 'rb') as handle:
+            self.assertNotIn(b'\r\n', handle.read())
 
     def test_csv_format(self):
         path = os.path.join(self.tmp, 'out.csv')
