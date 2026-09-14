@@ -33,6 +33,39 @@ def _coord(value):
     return '%.6f' % value
 
 
+_UMLAUTS = [(u'ä', u'ae'), (u'ö', u'oe'), (u'ü', u'ue'),
+            (u'Ä', u'ae'), (u'Ö', u'oe'), (u'Ü', u'ue'),
+            (u'ß', u'ss')]
+
+
+def slugify(text, maxlen=40):
+    """Freitext in einen Dateinamen-Baustein verwandeln.
+
+    "Kletterhalle Duisburg" -> "kletterhalle_duisburg". Leerer oder
+    unbrauchbarer Text ergibt '', dann bleibt der Dateiname wie bisher.
+    """
+    if not text:
+        return ''
+    try:
+        value = text if isinstance(text, type(u'')) else text.decode('utf-8', 'replace')
+    except Exception:
+        return ''
+    value = value.strip().lower()
+    for umlaut, replacement in _UMLAUTS:
+        value = value.replace(umlaut, replacement)
+
+    out = []
+    for char in value:
+        if char.isalnum() and ord(char) < 128:
+            out.append(char)
+        elif char in (u' ', u'-', u'_', u'.'):
+            out.append(u'_')
+    slug = ''.join(out)
+    while '__' in slug:
+        slug = slug.replace('__', '_')
+    return str(slug.strip('_')[:maxlen])
+
+
 def _timestamp():
     return datetime.datetime.now().strftime('%Y%m%d_%H_%M_%S')
 
@@ -54,6 +87,7 @@ class Recorder(threading.Thread):
         # Wie schnell ein Tastendruck bemerkt wird.
         self._tick = self.TICK if tick is None else tick
         self._files_open = False
+        self._local_run = False
         self.last_files = None
         self._fname_25 = None
         self._fname_10 = None
@@ -71,12 +105,26 @@ class Recorder(threading.Thread):
         self._pm_25_sum = 0.0
         self._avg_count = 0
 
-    def _open_files(self):
+    def _open_files(self, local=False):
+        """Legt die Dateinamen fuer eine Aufzeichnung fest.
+
+        Die lokale Messung schreibt nur CSV: sie findet an einem festen
+        Ort statt, eine KML-Spur aus lauter gleichen Punkten waere
+        nutzlos -- und ohne GPS-Fix entstuende sie ohnehin nicht.
+        """
         stamp = _timestamp()
         join = os.path.join
-        self._fname_25 = join(self._outdir, 'feinstaub_25_line_%s.kml' % stamp)
-        self._fname_10 = join(self._outdir, 'feinstaub_10_line_%s.kml' % stamp)
-        self._fname_csv = join(self._outdir, 'feinstaub_%s.csv' % stamp)
+        self._local_run = local
+        if local:
+            slug = slugify(self._state.place())
+            name = 'feinstaub_%s_%s.csv' % (slug, stamp) if slug                 else 'feinstaub_lokal_%s.csv' % stamp
+            self._fname_25 = None
+            self._fname_10 = None
+            self._fname_csv = join(self._outdir, name)
+        else:
+            self._fname_25 = join(self._outdir, 'feinstaub_25_line_%s.kml' % stamp)
+            self._fname_10 = join(self._outdir, 'feinstaub_10_line_%s.kml' % stamp)
+            self._fname_csv = join(self._outdir, 'feinstaub_%s.csv' % stamp)
         self._files_open = True
         self._reset_averages()
         self._lat_old = None
@@ -85,8 +133,10 @@ class Recorder(threading.Thread):
         self.last_files = (self._fname_25, self._fname_10, self._fname_csv)
 
     def _close_files(self):
-        kml.close_kml(self._fname_25)
-        kml.close_kml(self._fname_10)
+        if self._fname_25:
+            kml.close_kml(self._fname_25)
+        if self._fname_10:
+            kml.close_kml(self._fname_10)
         self._files_open = False
         write_log(1, 'KML-Dateien abgeschlossen')
 
@@ -95,8 +145,9 @@ class Recorder(threading.Thread):
         pm_25, pm_10 = self._state.measurement()
         lat, lon, utc = self._state.position()
 
-        # Nur mit gueltigem Fix eine Linie zeichnen.
-        if -90 <= lat <= 90 and lat != 0:
+        # Nur mit gueltigem Fix eine Linie zeichnen -- und nicht bei
+        # der lokalen Messung, die gar keine Spur erzeugt.
+        if not self._local_run and -90 <= lat <= 90 and lat != 0:
             if self._lat_old is None:
                 self._lat_old = lat
                 self._lon_old = lon
@@ -199,13 +250,14 @@ class Recorder(threading.Thread):
     # -- Hauptschleife ------------------------------------------------
     def run(self):
         while self._state.sensing:
-            if self._state.recording:
+            writing = self._state.recording or self._state.local
+            if writing:
                 if not self._files_open:
-                    self._open_files()
+                    self._open_files(local=self._state.local)
                 self._wait_recording(self._kml_interval)
                 if not self._state.sensing:
                     break
-                if self._state.recording:
+                if self._state.recording or self._state.local:
                     self._record_step()
                 continue
 

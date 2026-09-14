@@ -189,6 +189,70 @@ class SensorRequiredTest(unittest.TestCase):
         self.assertTrue(self.state.recording)
 
 
+class LocalModeRouteTest(unittest.TestCase):
+    """Lokale Messung: an einem Ort mitschreiben, nichts hochladen."""
+
+    def setUp(self):
+        self.state = AppState()
+        self.state.set_connection(u'verbunden')
+        self.app = webapp.create_app(self.state)
+
+    def test_localon_sets_mode_and_place(self):
+        status, payload = call(self.app, '/localon/?place=Kletterhalle')
+        self.assertTrue(status.startswith('200'))
+        self.assertTrue(self.state.local)
+        self.assertEqual(self.state.place(), u'Kletterhalle')
+
+    def test_localon_never_enables_upload(self):
+        """Die Zusage: aus der Kletterhalle geht nichts nach luftdaten."""
+        call(self.app, '/localon/?place=Kletterhalle')
+        self.assertFalse(self.state.stationary)
+        self.assertFalse(self.state.recording)
+
+    def test_answer_says_nothing_is_uploaded(self):
+        status, payload = call(self.app, '/localon/')
+        self.assertIn(u'nichts hochgeladen', payload['value'])
+
+    def test_localoff_stops_it(self):
+        call(self.app, '/localon/?place=Halle')
+        call(self.app, '/localoff/')
+        self.assertFalse(self.state.local)
+
+    def test_modes_are_mutually_exclusive(self):
+        call(self.app, '/localon/?place=Halle')
+        self.assertEqual((self.state.recording, self.state.local,
+                          self.state.stationary), (False, True, False))
+
+        call(self.app, '/staton/')
+        self.assertEqual((self.state.recording, self.state.local,
+                          self.state.stationary), (False, False, True))
+
+        call(self.app, '/start/')
+        self.assertEqual((self.state.recording, self.state.local,
+                          self.state.stationary), (True, False, False))
+
+    def test_localon_requires_a_sensor(self):
+        state = AppState()
+        app = webapp.create_app(state)
+        status, payload = call(app, '/localon/?place=Halle')
+        self.assertTrue(payload.get('refused'))
+        self.assertFalse(state.local)
+
+    def test_place_with_spaces_and_umlauts(self):
+        call(self.app, '/localon/?place=B%C3%BCro%20Flur')
+        # Kein Umlaut-Literal im Test: geprueft wird die ganze
+        # Kette von der URL-Dekodierung bis zum Dateinamen.
+        from recorder import slugify
+        self.assertEqual(slugify(self.state.place()), 'buero_flur')
+
+    def test_status_reports_local_mode(self):
+        call(self.app, '/localon/?place=Halle')
+        status, payload = call(self.app, '/status/')
+        self.assertTrue(payload['local'])
+        self.assertFalse(payload['stationary'])
+        self.assertEqual(payload['place'], u'Halle')
+
+
 class ConnectionRouteTest(unittest.TestCase):
 
     def setUp(self):

@@ -209,6 +209,35 @@ class BrowserTest(unittest.TestCase):
                          'Start bleibt nach dem Verbinden gesperrt')
         self.assertFalse(after['startStatBtn']['off'])
 
+    # -- Lokale Messung -----------------------------------------------
+    def test_upload_warning_is_shown(self):
+        """Der stationaere Modus ist der einzige, der Daten aus der Hand
+        gibt -- das muss man sehen, bevor man drauftippt."""
+        local = self._phase('local')['local']
+        self.assertTrue(local['warn_visible'], 'Warnhinweis nicht sichtbar')
+        text = local['warn_text']
+        self.assertIn(u'luftdaten', text.lower())
+        self.assertIn(u'raspi-', text, 'Sensor-ID fehlt im Hinweis')
+
+    def test_local_mode_records_without_upload(self):
+        """Die Kletterhallen-Messung darf den Upload nicht anschalten."""
+        after = self._phase('local')['local']['after_start']
+        self.assertTrue(after['local'])
+        self.assertFalse(after['stationary'], 'lokale Messung hat Upload aktiviert')
+        self.assertFalse(after['recording'])
+        self.assertEqual(after['place'], 'Kletterhalle Duisburg')
+
+    def test_active_mode_blocks_the_others(self):
+        after = self._phase('local')['local']['after_start']
+        self.assertTrue(after['startBtn']['off'],
+                        'Messfahrt startbar, obwohl lokale Messung laeuft')
+        self.assertTrue(after['startStatBtn']['off'],
+                        'Upload startbar, obwohl lokale Messung laeuft')
+        self.assertFalse(after['stoppLocalBtn']['off'])
+
+    def test_local_mode_can_be_stopped(self):
+        self.assertFalse(self._phase('local')['local']['after_stop']['local'])
+
     # -- Aktualisierung -----------------------------------------------
     def test_refresh_rate_change_does_not_stack_timers(self):
         """periodicRefresh() merkte sein Timer-Handle nicht, also konnte

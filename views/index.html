@@ -38,10 +38,19 @@
         // und Nullen sehen aus wie eine echte Messung. Stoppen bleibt
         // immer moeglich, auch wenn die Verbindung unterwegs abreisst.
         var ready = (data.connection === 'verbunden');
-        setEnabled("#startBtn", ready && !data.recording);
+        // Die drei Modi schliessen sich aus: was laeuft, sperrt die
+        // Startknoepfe der anderen.
+        var busy = data.recording || data.local || data.stationary;
+        setEnabled("#startBtn", ready && !busy);
         setEnabled("#stoppBtn", data.recording);
-        setEnabled("#startStatBtn", ready && !data.stationary);
+        setEnabled("#startLocalBtn", ready && !busy);
+        setEnabled("#stoppLocalBtn", data.local);
+        setEnabled("#startStatBtn", ready && !busy);
         setEnabled("#stoppStatBtn", data.stationary);
+        // Ortsangabe nicht ueberschreiben, waehrend getippt wird.
+        if (data.local && document.activeElement !== document.getElementById('placeInput')) {
+          $('#placeInput').val(data.place);
+        }
       }
 
       function loadDevices() {
@@ -178,6 +187,24 @@
         });
         modeButton("#disconnectBtn", "/disconnect/");
 
+        $("#startLocalBtn").click(function() {
+          if ($(this).hasClass('off')) { return; }
+          var place = $("#placeInput").val() || '';
+          $.ajax({
+            type: "GET",
+            url: $SCRIPT_ROOT + "/localon/?place=" + encodeURIComponent(place),
+            dataType: "json",
+            success: function(data) {
+              $('#echoResult').text(data.value);
+              refreshStatus();
+            },
+            error: function() {
+              $('#echoerror').text("Lokale Messung konnte nicht gestartet werden.");
+            }
+          });
+        });
+        modeButton("#stoppLocalBtn", "/localoff/");
+
         modeButton("#startBtn", "/start/");
         modeButton("#stoppBtn", "/stopp/");
         modeButton("#startStatBtn", "/staton/");
@@ -221,6 +248,15 @@ strong { text-align: center; }
 .conn.aus { background-color: #3f3f46; color: #d4d4d8; }
 .conn.warte { background-color: #78350f; color: #fcd34d; }
 .select { width: 33.3%; }
+.hint { font-size: 0.6em; color: #7fa8c4; margin-bottom: 0.4em; }
+/* Der stationaere Modus ist der einzige, der Daten aus der Hand
+   gibt -- das muss man sehen, bevor man drauftippt. */
+.warn { font-size: 0.6em; color: #fcd34d; background-color: #78350f;
+        padding: 0.5em; border-radius: 6px; margin-bottom: 0.5em; }
+.place { width: 100%; box-sizing: border-box; font-size: 0.8em;
+         padding: 0.4em; margin-bottom: 0.5em; border-radius: 6px;
+         border: 1px solid #3282B8; background-color: #0F4C75;
+         color: #BBE1FA; }
 .btn.start { background-color: #0F4C75; width: 30%; }
 .btn.stop { background-color: #3282B8; width: 30% }
 .btn.refresh { background-color: #3282B8; width: 30% }
@@ -412,7 +448,8 @@ select {
       <hline></hline>
       <br/>
 
-      <strong>Datenaufzeichnung</strong><br/>
+      <strong>Messfahrt</strong><br/>
+      <div class="hint">GPS-Spur und CSV in Dateien. Kein Upload.</div>
       <div class="hflex stretched">
 	<div class="btn start" id="startBtn">Start</div>
 	<div class="btn stop" id="stoppBtn">Stop</div>
@@ -422,7 +459,24 @@ select {
       <hline></hline>
       <br>
 
-      <strong>Stationärer Modus</strong><br/>
+      <strong>Lokale Messung</strong><br/>
+      <div class="hint">Messung an einem Ort, nur CSV, kein GPS nötig.
+        Kein Upload.</div>
+      <input type="text" id="placeInput" class="place"
+             placeholder="Ort, z. B. Kletterhalle" maxlength="40">
+      <div class="hflex stretched">
+	<div class="btn start" id="startLocalBtn">Start</div>
+	<div class="btn stop" id="stoppLocalBtn">Stop</div>
+      </div>
+
+      <br>
+      <hline></hline>
+      <br>
+
+      <strong>Stationär – Upload zu luftdaten.info</strong><br/>
+      <div class="warn">Überträgt die Messwerte öffentlich als
+        <b>{{xsensor}}</b>. Nur am mit luftdaten vereinbarten Standort
+        einschalten.</div>
       <div class="hflex stretched">
 	<div class="btn start" id="startStatBtn">StatStart</div>
 	<div class="btn stop" id="stoppStatBtn">StatStop</div>

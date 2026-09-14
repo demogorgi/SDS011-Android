@@ -17,7 +17,14 @@ However optiprimes code is not working under python3.x. The urge to get the setu
      <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Sample_setup.jpg" width=30% alt=Wiring"></div>
 7. In Qpython 3L choose Programs > projects > SDS011-Android-main > Run
 8. Should look like this then: <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Screenshot_QPython%203L.jpg" width=20% alt="Screenshot WebApp"></div>
-9. In the output directory you will find two kml-files, a csv-file and a log-file
+9. Three modes, mutually exclusive, all of them require a connected sensor:
+    * **Messfahrt** -- GPS track: two kml-files plus a csv-file. No upload.
+    * **Lokale Messung** -- measuring at one spot (for instance chalk dust in a
+      climbing gym): csv only, no GPS needed, no upload. The place you type ends
+      up in the file name, e.g. ``feinstaub_kletterhalle_20260914_22_47_27.csv``
+    * **Stationär** -- the only mode that uploads to luftdaten.info. Switch it on
+      only at the location agreed with luftdaten.
+10. In the output directory you will find the files and a log-file
     * The csv file's format is ``timestamp;pm2.5;pm_10;lat;lon``, decimal comma,
       coordinates with six decimals
       (earlier revisions of this README named the two measurement columns in the

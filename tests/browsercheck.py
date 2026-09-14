@@ -165,6 +165,29 @@ async def collect():
             await page.wait_for_function(CONN_TEXT + ".indexOf('verbunden') >= 0",
                                          timeout=15000)
 
+        with Phase(result, 'local'):
+            warn = await page.query_selector('.warn')
+            result['local'] = {
+                'warn_text': (await warn.text_content()) if warn else '',
+                'warn_visible': (await warn.is_visible()) if warn else False,
+            }
+            await page.fill('#placeInput', 'Kletterhalle Duisburg')
+            await page.click('#startLocalBtn')
+            await page.wait_for_timeout(1500)
+            snap = server_status()
+            result['local']['after_start'] = {
+                'local': snap['local'],
+                'stationary': snap['stationary'],
+                'recording': snap['recording'],
+                'place': snap['place'],
+                'startBtn': await page.eval_on_selector('#startBtn', BUTTON_STATE),
+                'startStatBtn': await page.eval_on_selector('#startStatBtn', BUTTON_STATE),
+                'stoppLocalBtn': await page.eval_on_selector('#stoppLocalBtn', BUTTON_STATE),
+            }
+            await page.click('#stoppLocalBtn')
+            await page.wait_for_timeout(1500)
+            result['local']['after_stop'] = {'local': server_status()['local']}
+
         with Phase(result, 'buttons'):
             # Zustand vor dem Klick
             result['before'] = {

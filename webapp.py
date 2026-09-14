@@ -17,12 +17,35 @@ import kml
 from logging_util import write_log
 
 
+def _query(name, default=u''):
+    """Einen Query-Parameter als Text lesen.
+
+    bottle dekodiert Query-Werte latin-1; aus %C3%BC wuerde sonst
+    Buchstabensalat statt eines Umlauts. getunicode() rechnet das um,
+    ist aber nicht in jeder bottle-Version vorhanden -- daher der
+    Rueckfall.
+    """
+    value = None
+    getunicode = getattr(request.query, 'getunicode', None)
+    if getunicode is not None:
+        try:
+            value = getunicode(name)
+        except Exception:
+            value = None
+    if value is None:
+        value = request.query.get(name)
+        if value is not None and not isinstance(value, type(u'')):
+            value = value.decode('utf-8', 'replace')
+    return value if value else default
+
+
 def create_app(state, on_shutdown=None, transport=None):
     app = Bottle()
 
     @app.route('/')
     def index():
-        return template('index.html', lookup=[config.TEMPLATEDIR])
+        return template('index.html', lookup=[config.TEMPLATEDIR],
+                        xsensor=config.XSENSOR)
 
     @app.route('/static/<filename:path>')
     def serve_static(filename):
@@ -47,7 +70,7 @@ def create_app(state, on_shutdown=None, transport=None):
 
     @app.route('/connect/')
     def connect():
-        device_id = request.query.get('device') or None
+        device_id = _query('device') or None
         name = u''
         if device_id and transport is not None:
             try:
@@ -88,9 +111,10 @@ def create_app(state, on_shutdown=None, transport=None):
         if refused:
             return refused
         state.recording = True
+        state.local = False
         state.stationary = False
         state.clear_error()
-        state.set_status(u'Aufzeichnung aktiv.')
+        state.set_status(u'Messfahrt aktiv.')
         write_log(1, 'Start der Aufzeichnung')
         return {'value': u'Start der Aufzeichnung der Messwerte.'}
 
@@ -110,6 +134,7 @@ def create_app(state, on_shutdown=None, transport=None):
         if refused:
             return refused
         state.recording = False
+        state.local = False
         state.stationary = True
         state.clear_error()
         state.set_status(u'Stationaerer Modus aktiv.')
@@ -120,6 +145,32 @@ def create_app(state, on_shutdown=None, transport=None):
         state.stationary = False
         state.set_status(u'Stationaerer Modus inaktiv.')
         return {'value': u'Stationaerer Modus gestoppt.'}
+
+    # -- Lokale Messung: nur Datei, kein Upload ------------------------
+    @app.route('/localon/')
+    def start_local():
+        refused = _requires_sensor(u'Lokale Messung')
+        if refused:
+            return refused
+        state.set_place(_query('place'))
+        state.recording = False
+        # Ausdruecklich: die lokale Messung laedt nichts hoch. Das
+        # passiert nur im stationaeren Modus.
+        state.stationary = False
+        state.local = True
+        state.clear_error()
+        place = state.place()
+        state.set_status(u'Lokale Messung aktiv%s.'
+                         % (u' - ' + place if place else u''))
+        write_log(1, 'Lokale Messung gestartet: {0}'.format(place or '(ohne Ort)'))
+        return {'value': u'Lokale Messung gestartet. Es wird nichts hochgeladen.'}
+
+    @app.route('/localoff/')
+    def stopp_local():
+        state.local = False
+        state.set_status(u'Lokale Messung beendet.')
+        write_log(1, 'Lokale Messung beendet')
+        return {'value': u'Lokale Messung beendet.'}
 
     @app.route('/status/')
     def status():
@@ -137,7 +188,9 @@ def create_app(state, on_shutdown=None, transport=None):
             # ableiten kann statt aus dem letzten Klick -- nach einem
             # Reload stimmte er sonst nicht mehr.
             'recording': snap['recording'],
+            'local': snap['local'],
             'stationary': snap['stationary'],
+            'place': snap['place'],
             'connection': snap['connection'],
             'connection_error': snap['connection_error'],
             'connection_wanted': snap['connection_wanted'],

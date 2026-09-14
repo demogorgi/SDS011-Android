@@ -39,7 +39,13 @@ class AppState(object):
         self._lock = threading.Lock()
         # Laufzeit-Flaggen. 'recording' hiess frueher 'run' und
         # kollidierte mit bottle.run.
+        # Drei Modi, die sich gegenseitig ausschliessen:
+        #   recording  -- Messfahrt: KML-Spur und CSV, braucht GPS
+        #   local      -- Lokale Messung an einem Ort: nur CSV,
+        #                 kein GPS noetig, KEIN Upload
+        #   stationary -- Upload zu luftdaten.info
         self.recording = False
+        self.local = False
         self.stationary = False
         self.sensing = True
         # Signal zum Beenden; ersetzt blockierende time.sleep()-Aufrufe.
@@ -61,6 +67,8 @@ class AppState(object):
         self._connection_error = u''
         self._device = None
         self._device_name = u''
+        # Freitext fuer die lokale Messung, landet im Dateinamen.
+        self._place = u''
 
     # -- Messwerte ----------------------------------------------------
     def set_measurement(self, pm_25, pm_10):
@@ -132,6 +140,15 @@ class AppState(object):
         with self._lock:
             return (self._device, self._device_name)
 
+    # -- Ortsangabe ---------------------------------------------------
+    def set_place(self, place):
+        with self._lock:
+            self._place = place or u''
+
+    def place(self):
+        with self._lock:
+            return self._place
+
     # -- Fuer die /status/-Route --------------------------------------
     def snapshot(self):
         """Ein konsistenter Blick auf alles, was das Frontend braucht."""
@@ -145,7 +162,9 @@ class AppState(object):
                 'status_text': self._status_text,
                 'error_msg': self._error_msg,
                 'recording': self.recording,
+                'local': self.local,
                 'stationary': self.stationary,
+                'place': self._place,
                 'connection': self._connection,
                 'connection_error': self._connection_error,
                 'connection_wanted': self.connection_wanted,
@@ -161,7 +180,13 @@ class AppState(object):
 
     def shutdown(self):
         self.connection_wanted = False
+        # Drei Modi, die sich gegenseitig ausschliessen:
+        #   recording  -- Messfahrt: KML-Spur und CSV, braucht GPS
+        #   local      -- Lokale Messung an einem Ort: nur CSV,
+        #                 kein GPS noetig, KEIN Upload
+        #   stationary -- Upload zu luftdaten.info
         self.recording = False
+        self.local = False
         self.stationary = False
         self.sensing = False
         self.stop_event.set()
