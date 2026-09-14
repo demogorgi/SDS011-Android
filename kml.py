@@ -1,6 +1,16 @@
-from main import write_log
-import os
+# -*- coding: utf-8 -*-
+"""Schreibt KML- und CSV-Dateien. Haengt nur an logging_util,
+nicht an main -- fruehere Zeile 'from main import write_log' hat
+main.py ein zweites Mal geladen, mit eigenem Satz Globals.
+"""
+
+from __future__ import absolute_import
+
 import datetime
+import io
+import os
+
+from logging_util import write_log
 
 # Hier wird die Farbe fuer die Linie festgelegt.
 def color_selection(value):
@@ -74,6 +84,9 @@ def color_selection(value):
     color = "#C800FF0F"
   elif 0 <= value < 1.470588235:
     color = "#C800FF00"
+  else:
+    # Negative oder ungueltige Werte: neutral statt UnboundLocalError.
+    color = "#C8FFFFFF"
 
   return color
 
@@ -93,9 +106,11 @@ def color_selection_rgb(value, pm):
       color = "#FF7814"
     # green
     elif 0 <= value < 40:
-      color = "#2bef0d"               
+      color = "#2bef0d"
+    else:
+      color = "#FFFFFF"
   elif pm == "pm_25":
-    # red   
+    # red
     if 50 <= value:
       color = "#F00014"
     # orange
@@ -103,7 +118,11 @@ def color_selection_rgb(value, pm):
       color = "#FF7814"
     # green
     elif 0 <= value < 25:
-      color = "#2bef0d"               
+      color = "#2bef0d"
+    else:
+      color = "#FFFFFF"
+  else:
+    color = "#FFFFFF"
 
   return color
 
@@ -114,12 +133,11 @@ def write_csv(pm_25, pm_10, value_lat, value_lon, value_time, value_fname):
   lon = value_lon
   time = value_time
   fname = value_fname
-  with open(fname,'a') as file:
-    line = time + ";" + pm_25 + ";" + pm_10 + ";" + lat + ";" + lon
+  with io.open(fname, 'a', encoding='utf-8', newline='') as file:
+    line = u"" + time + ";" + pm_25 + ";" + pm_10 + ";" + lat + ";" + lon
     line = line.replace(".", ",")
     file.write(line)
-    file.write('\n')
-    file.close()
+    file.write(u'\n')
 
 # Diese Funktion schreibt die KML Datei mit der zurückgelegten Wegstrecke.
 def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_lat, value_lon, value_time, value_fname, type, value_color):
@@ -134,45 +152,51 @@ def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_l
   color = value_color 
   try:
     if os.path.exists(fname):
-      with open(fname,'a+') as file:
+      with io.open(fname, 'a', encoding='utf-8', newline='') as file:
         # Hier ist eine sehr gute Dokumentation zu finden ueber
         # den Aufbau von KML Dateien.
         # https://developers.google.com/kml/documentation/kml_tut
-        file.write("   <Placemark>\n")
-        file.write("   <name>"+ pm +"</name>\n")
-        file.write("    <description>"+ pm +"</description>\n")
-        file.write("    <Point>\n")
-        file.write("      <coordinates>" + lon + "," + lat + "," + pm + "</coordinates>\n")
-        file.write("    </Point>\n")
-        file.write("       <LineString>\n")
-        file.write("           <altitudeMode>relativeToGround</altitudeMode>\n")
-        file.write("           <coordinates>" + lon + "," + lat + "," + pm + "\n           "+ lon_old+ ","+ lat_old+ "," + pm_old + "</coordinates>\n")
-        file.write("       </LineString>\n")
-        file.write("       <Style>\n")
-        file.write("           <LineStyle>\n")
-        file.write("               <color>" + color + "</color>\n")
-        file.write("               <width>8</width>\n")
-        file.write("           </LineStyle>\n")
-        file.write("       </Style>\n")
-        file.write("   </Placemark>\n") 
-        file.close()
+        file.write(u"   <Placemark>\n")
+        file.write(u"   <name>"+ pm +"</name>\n")
+        file.write(u"    <description>"+ pm +"</description>\n")
+        file.write(u"    <Point>\n")
+        file.write(u"      <coordinates>" + lon + "," + lat + "," + pm + "</coordinates>\n")
+        file.write(u"    </Point>\n")
+        file.write(u"       <LineString>\n")
+        file.write(u"           <altitudeMode>relativeToGround</altitudeMode>\n")
+        file.write(u"           <coordinates>" + lon + "," + lat + "," + pm + "\n           "+ lon_old+ ","+ lat_old+ "," + pm_old + "</coordinates>\n")
+        file.write(u"       </LineString>\n")
+        file.write(u"       <Style>\n")
+        file.write(u"           <LineStyle>\n")
+        file.write(u"               <color>" + color + "</color>\n")
+        file.write(u"               <width>8</width>\n")
+        file.write(u"           </LineStyle>\n")
+        file.write(u"       </Style>\n")
+        file.write(u"   </Placemark>\n") 
     else:
-      with open(fname,'a+') as file:
-        file.write("<?xml version='1.0' encoding='UTF-8'?>\n")
-        file.write("<kml xmlns='http://earth.google.com/kml/2.1'>\n")
-        file.write("<Document>\n")
-        file.write("   <name> Feinstaub_Linie_"+type+"_" + datetime.datetime.now().strftime ("%Y%m%d") + ".kml </name>\n")
-        file.write('\n')
-        file.close()    
+      with io.open(fname, 'a', encoding='utf-8', newline='') as file:
+        file.write(u"<?xml version='1.0' encoding='UTF-8'?>\n")
+        file.write(u"<kml xmlns='http://earth.google.com/kml/2.1'>\n")
+        file.write(u"<Document>\n")
+        file.write(u"   <name> Feinstaub_Linie_"+type+"_" + datetime.datetime.now().strftime ("%Y%m%d") + ".kml </name>\n")
+        file.write(u'\n')    
   except Exception as e:
-    write_log(0, e)
+    write_log(0, 'KML-Fehler: {0}'.format(e))
 
 # Diese Funktion schliesst das KML File ab.
 def close_kml(file_name):
+  # Wurde zwischen Start und Stopp kein Messwert geschrieben, existiert
+  # die Datei nicht. Frueher legte close_kml() sie dann an und schrieb
+  # nur die schliessenden Tags hinein -- das Ergebnis war kein gueltiges
+  # XML und in Google Earth unbrauchbar.
+  if not os.path.exists(file_name):
+    write_log(1, 'close_kml: {0} existiert nicht, nichts abzuschliessen'.format(file_name))
+    return False
   try:
-    with open(file_name,'a+') as file:
-      file.write("  </Document>\n")
-      file.write("</kml>\n")  
-      file.close()
+    with io.open(file_name, 'a', encoding='utf-8', newline='') as file:
+      file.write(u"  </Document>\n")
+      file.write(u"</kml>\n")
+    return True
   except Exception as e:
-    write_log(0, e)
+    write_log(0, 'KML-Fehler: {0}'.format(e))
+    return False
