@@ -33,17 +33,15 @@ def create_app(state, on_shutdown=None):
         state.recording = True
         state.stationary = False
         state.set_status(u'Aufzeichnung aktiv.')
-        ret_data = {'value': u'Start der Aufzeichnung der Messwerte.'}
-        write_log(1, ret_data)
-        return ret_data
+        write_log(1, 'Start der Aufzeichnung')
+        return {'value': u'Start der Aufzeichnung der Messwerte.'}
 
     @app.route('/stopp/')
     def stopp():
         state.recording = False
         state.set_status(u'Aufzeichnung inaktiv.')
-        ret_data = {'value': u'Aufzeichnung der Messwerte angehalten.'}
-        write_log(1, ret_data)
-        return ret_data
+        write_log(1, 'Aufzeichnung angehalten')
+        return {'value': u'Aufzeichnung der Messwerte angehalten.'}
 
     @app.route('/staton/')
     def start_stat():
@@ -71,7 +69,6 @@ def create_app(state, on_shutdown=None):
             'pm_25_color': kml.color_selection_rgb(snap['pm_25'], 'pm_25'),
             'error_msg': snap['error_msg'],
         }
-        write_log(3, ret_data)
         return ret_data
 
     @app.route('/__exit', method=['GET', 'HEAD'])

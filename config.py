@@ -57,6 +57,16 @@ def ensure_outdir():
     return OUTDIR
 
 
+def http_port():
+    """Port des Webservers, per SDS011_PORT ueberschreibbar.
+
+    Unter Windows koennen sich dank SO_REUSEADDR mehrere Prozesse an
+    denselben Port binden, ohne dass der zweite einen Fehler bekommt --
+    Testlaeufe treffen sonst versehentlich eine alte Instanz.
+    """
+    return int(os.environ.get('SDS011_PORT') or HTTP_PORT)
+
+
 def on_android():
     """True, wenn wir unter QPython auf einem Geraet laufen."""
     return os.environ.get('ANDROID_ROOT') is not None

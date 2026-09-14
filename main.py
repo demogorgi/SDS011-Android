@@ -16,6 +16,7 @@ in config.py.
 from __future__ import absolute_import
 
 import sys
+import threading
 
 import bottle
 
@@ -26,6 +27,7 @@ import transport
 import webapp
 from logging_util import write_log, reset_logfile
 from recorder import Recorder
+from server import StoppableWSGIRefServer
 from state import AppState
 
 
@@ -58,22 +60,43 @@ def main():
 
     gps_reader, sensor_reader, recorder = build_threads(state)
 
+    srv = StoppableWSGIRefServer(host=config.HTTP_HOST, port=config.http_port())
+
+    # Der Shutdown wird aus zwei Richtungen gerufen: von der
+    # /__exit-Route (in einem eigenen Thread) und aus dem finally unten.
+    # Der Lock sorgt dafuer, dass der zweite Aufrufer wartet, statt
+    # den ersten mittendrin abzuschneiden.
+    shutdown_lock = threading.Lock()
+    shutdown_state = {'done': False}
+
     def shutdown():
-        state.shutdown()
-        for thread, name in ((recorder, 'recorder'),
-                             (sensor_reader, 'sds011'),
-                             (gps_reader, 'gps')):
-            if hasattr(thread, 'stop'):
-                thread.stop()
-            thread.join(10)
-            write_log(0, '{0} beendet (alive={1})'.format(name, thread.is_alive()))
-        if droid is not None:
-            try:
-                droid.wakeLockRelease()
-                droid.exit()
-            except Exception as exc:
-                write_log(0, 'droid.exit fehlgeschlagen: {0}'.format(exc))
-        write_log(0, '...und Tschuess!')
+        with shutdown_lock:
+            if shutdown_state['done']:
+                return
+            shutdown_state['done'] = True
+
+            state.shutdown()
+            for thread, name in ((recorder, 'recorder'),
+                                 (sensor_reader, 'sds011'),
+                                 (gps_reader, 'gps')):
+                if hasattr(thread, 'stop'):
+                    try:
+                        thread.stop()
+                    except Exception as exc:
+                        write_log(0, '{0}.stop() fehlgeschlagen: {1}'.format(name, exc))
+                thread.join(10)
+                write_log(1, '{0} beendet (alive={1})'.format(name, thread.is_alive()))
+
+            if droid is not None:
+                try:
+                    droid.wakeLockRelease()
+                    droid.exit()
+                except Exception as exc:
+                    write_log(0, 'droid.exit fehlgeschlagen: {0}'.format(exc))
+
+            # Zuletzt der Webserver -- danach kehrt bottle.run() zurueck.
+            srv.stop(timeout=2.0)
+            write_log(0, '...und Tschuess!')
 
     gps_reader.start()
     sensor_reader.start()
@@ -82,8 +105,7 @@ def main():
 
     app = webapp.create_app(state, on_shutdown=shutdown)
     try:
-        bottle.run(app=app, host=config.HTTP_HOST, port=config.HTTP_PORT,
-                   quiet=False)
+        bottle.run(app=app, server=srv)
     except KeyboardInterrupt:
         write_log(0, 'Abbruch per Tastatur')
     finally:
