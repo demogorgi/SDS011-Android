@@ -24,6 +24,9 @@ GPS_INT = 5
 STAT_INT = 240
 
 SSP_UUID = '00001101-0000-1000-8000-00805F9B34FB'
+# RFCOMM-Kanal auf dem Desktop. HC05/HC06 bieten SPP ueblicherweise
+# auf Kanal 1 an; die Standardbibliothek kann keine Dienstsuche.
+RFCOMM_CHANNEL = 1
 # Bluetooth MAC-Adresse des HC05/HC06-Moduls, welches die Verbindung
 # zum SDS011-Sensor herstellt.
 SDS011_BLUETOOTH_DEVICE_ID = '00:14:03:05:59:17'

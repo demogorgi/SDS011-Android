@@ -325,8 +325,20 @@ class FakeTransport(Transport):
 
 
 def create_transport():
-    """Waehlt die Implementierung anhand der Umgebung."""
+    """Waehlt die Implementierung anhand der Umgebung.
+
+    SDS011_FAKE=0 auf dem Desktop erzwingt echte Hardware -- dann wird
+    ueber RFCOMM verbunden, genau wie auf dem Geraet ueber die
+    MAC-Adresse.
+    """
     if config.use_fake_hardware():
         write_log(1, 'Benutze simulierten Sensor (FakeTransport)')
         return FakeTransport()
-    return AndroidBluetoothTransport()
+    if config.on_android():
+        write_log(1, 'Benutze Bluetooth ueber androidhelper')
+        return AndroidBluetoothTransport()
+    # Erst hier importieren: das Modul braucht socket.AF_BLUETOOTH, das
+    # es unter Python 2 auf dem Geraet nicht gibt.
+    from bluetooth_desktop import BluetoothSocketTransport
+    write_log(1, 'Benutze Bluetooth ueber RFCOMM-Socket')
+    return BluetoothSocketTransport()

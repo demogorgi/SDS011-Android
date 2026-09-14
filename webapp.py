@@ -71,10 +71,25 @@ def create_app(state, on_shutdown=None, transport=None):
         write_log(1, 'Trennung angefordert')
         return {'value': u'Verbindung getrennt.'}
 
+    def _requires_sensor(what):
+        """Ohne verbundenen Sensor entstuenden Dateien voller Nullen --
+        die sehen aus wie eine echte Messung. Auch serverseitig
+        abgelehnt, damit eine veraltete Seite es nicht doch ausloest."""
+        if state.is_connected():
+            return None
+        message = u'%s nicht moeglich: kein Sensor verbunden.' % what
+        state.report_error(message)
+        write_log(1, message)
+        return {'value': message, 'refused': True}
+
     @app.route('/start/')
     def start_measure():
+        refused = _requires_sensor(u'Aufzeichnung')
+        if refused:
+            return refused
         state.recording = True
         state.stationary = False
+        state.clear_error()
         state.set_status(u'Aufzeichnung aktiv.')
         write_log(1, 'Start der Aufzeichnung')
         return {'value': u'Start der Aufzeichnung der Messwerte.'}
@@ -88,8 +103,15 @@ def create_app(state, on_shutdown=None, transport=None):
 
     @app.route('/staton/')
     def start_stat():
+        # Hier waere es besonders unangenehm: der stationaere Modus
+        # laedt die Werte zu api.luftdaten hoch. Nullen aus einem nicht
+        # verbundenen Sensor landeten in einem oeffentlichen Datensatz.
+        refused = _requires_sensor(u'Stationaerer Modus')
+        if refused:
+            return refused
         state.recording = False
         state.stationary = True
+        state.clear_error()
         state.set_status(u'Stationaerer Modus aktiv.')
         return {'value': u'Stationaerer Modus gestartet.'}
 

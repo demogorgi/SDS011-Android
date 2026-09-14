@@ -54,6 +54,29 @@ liefert plausible Messwerte, das simulierte GPS faehrt eine kleine Runde.
 Ohne die Variable entscheidet die Plattform: auf dem Geraet
 (`ANDROID_ROOT` gesetzt) echte Hardware, sonst Simulation.
 
+### Echter Sensor am PC oder Laptop
+
+Der SDS011 laesst sich auch vom Rechner aus auslesen -- ueber dasselbe
+HC05/HC06-Modul, also per Bluetooth:
+
+1. Das Modul einmal in den Bluetooth-Einstellungen des Betriebssystems
+   koppeln. Windows verlangt fuer RFCOMM eine bestehende Kopplung.
+2. `SDS011_FAKE=0 python main.py` starten.
+3. Im Browser unter **Sensor** das Modul aus der Liste waehlen und auf
+   **Verbinden** druecken.
+
+Verbunden wird ueber die MAC-Adresse, genau wie auf dem Geraet -- keine
+COM-Port-Nummer, kein `pyserial`, kein `PyBluez`. `socket.AF_BLUETOOTH`
+steckt in der Standardbibliothek.
+
+Falls die Verbindung nicht zustande kommt: HC05/HC06 bieten SPP
+ueblicherweise auf RFCOMM-Kanal 1 an, und die Standardbibliothek kann
+keine Dienstsuche. Notfalls `RFCOMM_CHANNEL` in `config.py` anpassen.
+
+**GPS gibt es am Laptop nicht.** Fuer den stationaeren Modus ist das
+egal, der braucht keine Position. Fuer die Kartierung braeuchte es eine
+USB-GPS-Maus.
+
 ### Tests
 
 `unittest` aus der Standardbibliothek -- laeuft unter Python 2.7 und 3.x,
@@ -102,7 +125,10 @@ Python 2 schon beim Einsammeln zerlegen.
 | `logging_util.py` | Logging | config |
 | `state.py` | gemeinsamer Zustand (mit Lock) | -- |
 | `protocol.py` | SDS011-Frames, reine Byte-Arithmetik | -- |
-| `transport.py` | Bluetooth bzw. Simulation | config, protocol |
+| `transport.py` | Schnittstelle, Android-Bluetooth, Simulation | config, protocol |
+| `bluetooth_desktop.py` | Bluetooth am PC ueber RFCOMM | config, transport |
+| `connection.py` | Wartezeiten zwischen Verbindungsversuchen | -- |
+| `server.py` | stoppbarer, nebenlaeufiger Webserver | -- |
 | `gps.py` | GPS-Quelle und -Thread | config, state |
 | `sensor.py` | Sensor-Thread | protocol, state |
 | `recorder.py` | Aufzeichnung und stationaerer Modus | config, kml, state |

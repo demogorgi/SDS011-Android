@@ -190,6 +190,25 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(after['server_connection'], u'getrennt')
         self.assertIn(u'getrennt', after['text'])
 
+    def test_recording_is_blocked_without_sensor(self):
+        """Ohne verbundenen Sensor entstuenden Dateien voller Nullen --
+        die sehen aus wie eine echte Messung."""
+        result = self._phase('connection')
+        before = result['connection']['initial']
+        after = result['connection']['after_connect']
+
+        self.assertTrue(before['startBtn']['off'],
+                        'Start ist ohne Sensor anklickbar')
+        self.assertTrue(before['startStatBtn']['off'],
+                        'Stationaerer Modus ist ohne Sensor anklickbar')
+        self.assertLess(before['startBtn']['opacity'],
+                        after['startBtn']['opacity'],
+                        'gesperrter Start sieht aus wie ein freigegebener')
+
+        self.assertFalse(after['startBtn']['off'],
+                         'Start bleibt nach dem Verbinden gesperrt')
+        self.assertFalse(after['startStatBtn']['off'])
+
     # -- Aktualisierung -----------------------------------------------
     def test_refresh_rate_change_does_not_stack_timers(self):
         """periodicRefresh() merkte sein Timer-Handle nicht, also konnte

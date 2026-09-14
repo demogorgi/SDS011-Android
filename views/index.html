@@ -34,9 +34,13 @@
       }
 
       function applyMode(data) {
-        setEnabled("#startBtn", !data.recording);
+        // Ohne verbundenen Sensor entstuenden Dateien voller Nullen --
+        // und Nullen sehen aus wie eine echte Messung. Stoppen bleibt
+        // immer moeglich, auch wenn die Verbindung unterwegs abreisst.
+        var ready = (data.connection === 'verbunden');
+        setEnabled("#startBtn", ready && !data.recording);
         setEnabled("#stoppBtn", data.recording);
-        setEnabled("#startStatBtn", !data.stationary);
+        setEnabled("#startStatBtn", ready && !data.stationary);
         setEnabled("#stoppStatBtn", data.stationary);
       }
 

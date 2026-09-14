@@ -22,7 +22,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODULES = [
     'config.py', 'logging_util.py', 'state.py', 'protocol.py',
     'transport.py', 'gps.py', 'sensor.py', 'recorder.py', 'webapp.py',
-    'kml.py', 'main.py',
+    'kml.py', 'main.py', 'connection.py', 'server.py',
+    'bluetooth_desktop.py',
 ]
 
 

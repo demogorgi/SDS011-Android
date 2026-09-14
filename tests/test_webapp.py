@@ -51,6 +51,8 @@ class RouteTest(unittest.TestCase):
     def setUp(self):
         self.state = AppState()
         self.app = webapp.create_app(self.state)
+        # Aufzeichnen setzt einen verbundenen Sensor voraus.
+        self.state.set_connection(u'verbunden')
 
     def test_start_and_stopp_toggle_recording(self):
         self.assertFalse(self.state.recording)
@@ -137,6 +139,54 @@ class RouteTest(unittest.TestCase):
         status, body = call(self.app, '/')
         self.assertTrue(status.startswith('200'))
         self.assertIn(b'Feinstaub', body)
+
+
+class SensorRequiredTest(unittest.TestCase):
+    """Ohne verbundenen Sensor entstuenden Dateien voller Nullen -- und
+    Nullen sehen aus wie eine echte Messung."""
+
+    def setUp(self):
+        self.state = AppState()
+        self.app = webapp.create_app(self.state)
+
+    def test_start_is_refused_without_sensor(self):
+        status, payload = call(self.app, '/start/')
+        self.assertTrue(status.startswith('200'))
+        self.assertTrue(payload.get('refused'))
+        self.assertFalse(self.state.recording)
+        self.assertIn(u'kein Sensor verbunden', self.state.error())
+
+    def test_stationary_is_refused_without_sensor(self):
+        """Besonders wichtig: der stationaere Modus laedt zu
+        api.luftdaten hoch. Nullen landeten in einem oeffentlichen
+        Datensatz."""
+        status, payload = call(self.app, '/staton/')
+        self.assertTrue(payload.get('refused'))
+        self.assertFalse(self.state.stationary)
+
+    def test_start_works_once_connected(self):
+        self.state.set_connection(u'verbunden')
+        status, payload = call(self.app, '/start/')
+        self.assertFalse(payload.get('refused'))
+        self.assertTrue(self.state.recording)
+        self.assertEqual(self.state.error(), u'')
+
+    def test_stopp_works_even_without_sensor(self):
+        """Stoppen muss immer gehen -- auch wenn die Verbindung
+        unterwegs abgerissen ist."""
+        self.state.set_connection(u'verbunden')
+        call(self.app, '/start/')
+        self.state.set_connection(u'getrennt')
+        call(self.app, '/stopp/')
+        self.assertFalse(self.state.recording)
+
+    def test_dropout_during_recording_does_not_stop_it(self):
+        """Ein kurzer Aussetzer soll die Fahrt nicht abbrechen -- der
+        SensorReader verbindet selbst wieder."""
+        self.state.set_connection(u'verbunden')
+        call(self.app, '/start/')
+        self.state.set_connection(u'wartet auf naechsten Versuch')
+        self.assertTrue(self.state.recording)
 
 
 class ConnectionRouteTest(unittest.TestCase):

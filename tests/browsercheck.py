@@ -130,6 +130,9 @@ async def collect():
                     '#deviceSelect option', 'els => els.map(e => e.value)'),
                 'connectBtn': await page.eval_on_selector('#connectBtn', BUTTON_STATE),
                 'disconnectBtn': await page.eval_on_selector('#disconnectBtn', BUTTON_STATE),
+                # Ohne Sensor darf nicht aufgezeichnet werden koennen.
+                'startBtn': await page.eval_on_selector('#startBtn', BUTTON_STATE),
+                'startStatBtn': await page.eval_on_selector('#startStatBtn', BUTTON_STATE),
             }
 
             # Auf die Zustandsaenderung warten statt eine Dauer zu raten.
@@ -143,6 +146,8 @@ async def collect():
                 'server_wanted': server_status()['connection_wanted'],
                 'connectBtn': await page.eval_on_selector('#connectBtn', BUTTON_STATE),
                 'disconnectBtn': await page.eval_on_selector('#disconnectBtn', BUTTON_STATE),
+                'startBtn': await page.eval_on_selector('#startBtn', BUTTON_STATE),
+                'startStatBtn': await page.eval_on_selector('#startStatBtn', BUTTON_STATE),
             }
 
             await page.click('#disconnectBtn')
