@@ -22,6 +22,17 @@ from logging_util import write_log
 _now = getattr(time, 'monotonic', time.time)
 
 
+def _coord(value):
+    """GPS-Koordinate mit fester Genauigkeit.
+
+    str(51.4391) liefert je nach Rechenweg 51.439099999999996 --
+    dieses Float-Rauschen stand bisher in CSV und KML. Sechs
+    Nachkommastellen entsprechen etwa 11 cm und sind damit deutlich
+    genauer als jedes Handy-GPS.
+    """
+    return '%.6f' % value
+
+
 def _timestamp():
     return datetime.datetime.now().strftime('%Y%m%d_%H_%M_%S')
 
@@ -89,14 +100,18 @@ class Recorder(threading.Thread):
             if self._lat_old is None:
                 self._lat_old = lat
                 self._lon_old = lon
+                # Auch die Messwerte, sonst zieht das erste Placemark
+                # eine senkrechte Linie von 0 auf den aktuellen Wert.
+                self._pm_old_25 = pm_25
+                self._pm_old_10 = pm_10
 
             kml.write_kml_line(
-                str(pm_25), str(self._pm_old_25), str(self._lon_old),
-                str(self._lat_old), str(lat), str(lon), str(utc),
+                str(pm_25), str(self._pm_old_25), _coord(self._lon_old),
+                _coord(self._lat_old), _coord(lat), _coord(lon), str(utc),
                 self._fname_25, '25', kml.color_selection(pm_25))
             kml.write_kml_line(
-                str(pm_10), str(self._pm_old_10), str(self._lon_old),
-                str(self._lat_old), str(lat), str(lon), str(utc),
+                str(pm_10), str(self._pm_old_10), _coord(self._lon_old),
+                _coord(self._lat_old), _coord(lat), _coord(lon), str(utc),
                 self._fname_10, '10', kml.color_selection(pm_10))
 
             self._lat_old = lat
@@ -105,7 +120,7 @@ class Recorder(threading.Thread):
             self._pm_old_10 = pm_10
 
         kml.write_csv(
-            str(pm_25), str(pm_10), str(lat), str(lon),
+            str(pm_25), str(pm_10), _coord(lat), _coord(lon),
             datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             self._fname_csv)
 

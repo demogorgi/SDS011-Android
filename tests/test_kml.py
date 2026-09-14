@@ -70,8 +70,10 @@ class FileOutputTest(unittest.TestCase):
         path = self._write_track(points=4)
         with io.open(path, encoding='utf-8') as handle:
             text = handle.read()
-        # Der erste Aufruf legt nur den Kopf an, danach je ein Placemark.
-        self.assertEqual(text.count('<Placemark>'), 3)
+        # Jeder Messwert ergibt ein Placemark. Frueher legte der erste
+        # Aufruf nur den Kopf an und verwarf den Messwert.
+        self.assertEqual(text.count('<Placemark>'), 4)
+        self.assertEqual(text.count('<Document>'), 1)
         self.assertTrue(text.rstrip().endswith('</kml>'))
 
     def test_kml_uses_unix_line_endings(self):
@@ -111,9 +113,22 @@ class CloseKmlEdgeCaseTest(unittest.TestCase):
         self.assertFalse(os.path.exists(path),
                          'close_kml hat eine Datei mit nur schliessenden Tags angelegt')
 
-    def test_close_after_header_only_is_valid_xml(self):
+    def test_first_measurement_is_not_lost(self):
+        """Ein einziger Messwert muss als Placemark in der Datei landen."""
+        path = os.path.join(self.tmp, 'einer.kml')
+        kml.write_kml_line('12.3', '12.3', '6.7882', '51.4385',
+                           '51.4385', '6.7882', '2026-01-01 10:00:00',
+                           path, '25', '#C800FF00')
+        self.assertTrue(kml.close_kml(path))
+        with io.open(path, encoding='utf-8') as handle:
+            text = handle.read()
+        self.assertEqual(text.count('<Placemark>'), 1)
+        self.assertIn('12.3', text)
+        with io.open(path, 'rb') as handle:
+            ElementTree.parse(handle)
+
+    def test_close_after_single_line_is_valid_xml(self):
         path = os.path.join(self.tmp, 'kopf.kml')
-        # Erster Aufruf legt nur den Kopf an.
         kml.write_kml_line('1.0', '1.0', '6.7', '51.4', '51.4', '6.7',
                            '2026-01-01 10:00:00', path, '25', '#C800FF00')
         self.assertTrue(kml.close_kml(path))

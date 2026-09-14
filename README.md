@@ -18,10 +18,14 @@ However optiprimes code is not working under python3.x. The urge to get the setu
 7. In Qpython 3L choose Programs > projects > SDS011-Android-main > Run
 8. Should look like this then: <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Screenshot_QPython%203L.jpg" width=20% alt="Screenshot WebApp"></div>
 9. In the output directory you will find two kml-files, a csv-file and a log-file
-    * The csv file's format ist ``timestamp;pm_10;pm2.5;lat;lon``
+    * The csv file's format is ``timestamp;pm2.5;pm_10;lat;lon``, decimal comma,
+      coordinates with six decimals
+      (earlier revisions of this README named the two measurement columns in the
+      wrong order -- the file has always started with pm2.5)
     * The kml-files contain a pm_10 and pm_2.5 "trajectory" that can be viewed in GoogleEarth (make sure to press the "Stop"-Button in the WebApp to get vaild kml files)
       <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Dust-trajectory.jpg" width=50% alt=Wiring"></div>
-    * The logfile contains some logging
+    * ``logfile.txt`` contains the log of the current run, ``logfile.1.txt``
+      the one before it
 
 ## Entwicklung
 

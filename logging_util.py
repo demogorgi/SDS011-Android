@@ -55,10 +55,33 @@ def to_text(value):
             return _TEXT(repr(value))
 
 
-def reset_logfile():
-    """Loescht das Logfile beim Start (bisheriges Verhalten)."""
+def previous_logfile(path=None):
+    """Pfad des Vorgaenger-Logs: output/logfile.txt -> output/logfile.1.txt"""
+    base, ext = os.path.splitext(path if path is not None else _logfile)
+    return base + '.1' + ext
+
+
+def rotate_logfile():
+    """Hebt das Log des letzten Laufs auf, statt es wegzuwerfen.
+
+    Frueher wurde beim Start geloescht -- wer nach einer Messfahrt in
+    der App nachsehen wollte, was schiefgelaufen war, hatte das Log
+    durch den Neustart bereits vernichtet. Eine Generation reicht und
+    laesst den Speicher des Geraets in Ruhe.
+    """
     config.ensure_outdir()
-    if os.path.exists(_logfile):
+    if not os.path.exists(_logfile):
+        return
+    previous = previous_logfile()
+    try:
+        # os.replace() gibt es erst ab Python 3.3, und os.rename()
+        # scheitert unter Windows, wenn das Ziel existiert.
+        if os.path.exists(previous):
+            os.remove(previous)
+        os.rename(_logfile, previous)
+    except OSError:
+        # Wenn das Rotieren scheitert, lieber leeren als mit dem alten
+        # Log weiterschreiben.
         try:
             os.remove(_logfile)
         except OSError:

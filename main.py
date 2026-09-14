@@ -25,7 +25,7 @@ import gps
 import sensor
 import transport
 import webapp
-from logging_util import write_log, reset_logfile
+from logging_util import write_log, rotate_logfile
 from recorder import Recorder
 from server import StoppableWSGIRefServer
 from state import AppState
@@ -45,7 +45,7 @@ def build_threads(state):
 
 def main():
     config.ensure_outdir()
-    reset_logfile()
+    rotate_logfile()
     write_log(1, 'Start, Python {0}'.format(sys.version.split()[0]))
     write_log(1, 'Android: {0}, simulierte Hardware: {1}'.format(
         config.on_android(), config.use_fake_hardware()))
