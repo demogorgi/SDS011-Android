@@ -22,3 +22,62 @@ However optiprimes code is not working under python3.x. The urge to get the setu
     * The kml-files contain a pm_10 and pm_2.5 "trajectory" that can be viewed in GoogleEarth (make sure to press the "Stop"-Button in the WebApp to get vaild kml files)
       <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Dust-trajectory.jpg" width=50% alt=Wiring"></div>
     * The logfile contains some logging
+
+## Entwicklung
+
+Der Code laeuft unter **QPython 2 (Python 2.7)** und **QPython 3L (Python 3.x)**.
+Damit das so bleibt, gelten ein paar Regeln:
+
+* keine f-strings, kein Walrus, keine Annotationen, kein `pathlib`
+* `"{0}".format(...)` statt `"{}".format(...)`
+* Bytes immer als `bytearray` anfassen -- `bytearray[i]` liefert auf beiden
+  Python-Generationen ein `int`, `str[i]` nicht
+* Dateien mit `io.open(..., encoding='utf-8')` und `u"..."`-Literalen schreiben
+
+### Ohne Handy entwickeln
+
+Die Hardware liegt hinter zwei Schnittstellen (`transport.Transport`,
+`gps.GpsSource`), zu denen es je eine Simulation gibt. Damit laeuft das
+komplette Programm auf dem PC:
+
+```
+pip install -r requirements-dev.txt
+SDS011_FAKE=1 python main.py        # Windows: set SDS011_FAKE=1
+```
+
+Danach `http://localhost:8080` im Browser oeffnen. Der simulierte Sensor
+liefert plausible Messwerte, das simulierte GPS faehrt eine kleine Runde.
+Ohne die Variable entscheidet die Plattform: auf dem Geraet
+(`ANDROID_ROOT` gesetzt) echte Hardware, sonst Simulation.
+
+### Tests
+
+`unittest` aus der Standardbibliothek -- laeuft unter Python 2.7 und 3.x,
+ohne zusaetzliche Pakete:
+
+```
+python -m unittest discover -s tests -t .
+```
+
+Der Python-2-Syntaxcheck wird uebersprungen, wenn kein Python 2 gefunden
+wird. Mit einem vorhandenen Interpreter laeuft er echt:
+
+```
+PYTHON2=C:\Python27\python.exe python -m unittest tests.test_py2_compat
+```
+
+### Aufbau
+
+| Modul | Inhalt | haengt ab von |
+|---|---|---|
+| `config.py` | Konstanten und Pfade | -- |
+| `logging_util.py` | Logging | config |
+| `state.py` | gemeinsamer Zustand (mit Lock) | -- |
+| `protocol.py` | SDS011-Frames, reine Byte-Arithmetik | -- |
+| `transport.py` | Bluetooth bzw. Simulation | config, protocol |
+| `gps.py` | GPS-Quelle und -Thread | config, state |
+| `sensor.py` | Sensor-Thread | protocol, state |
+| `recorder.py` | Aufzeichnung und stationaerer Modus | config, kml, state |
+| `kml.py` | KML-/CSV-Ausgabe | logging_util |
+| `webapp.py` | Bottle-Routen | config, kml, state |
+| `main.py` | verdrahtet alles | alle |
