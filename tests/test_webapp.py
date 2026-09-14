@@ -76,7 +76,8 @@ class RouteTest(unittest.TestCase):
         status, payload = call(self.app, '/status/')
         self.assertTrue(status.startswith('200'))
         for key in ('value', 'lat', 'lon', 'pm_10', 'pm_10_color',
-                    'pm_25', 'pm_25_color', 'error_msg'):
+                    'pm_25', 'pm_25_color', 'error_msg',
+                    'recording', 'stationary'):
             self.assertIn(key, payload)
         self.assertEqual(payload['lat'], '51.43850')
         self.assertEqual(payload['pm_10'].strip(), '45.6')
@@ -87,6 +88,21 @@ class RouteTest(unittest.TestCase):
         write_log(0, 'Verbinde mit Feinstaubsensor...')
         status, payload = call(self.app, '/status/')
         self.assertEqual(payload['error_msg'], u'')
+
+    def test_status_reflects_mode(self):
+        status, payload = call(self.app, '/status/')
+        self.assertFalse(payload['recording'])
+        self.assertFalse(payload['stationary'])
+
+        call(self.app, '/start/')
+        status, payload = call(self.app, '/status/')
+        self.assertTrue(payload['recording'])
+        self.assertFalse(payload['stationary'])
+
+        call(self.app, '/staton/')
+        status, payload = call(self.app, '/status/')
+        self.assertFalse(payload['recording'])
+        self.assertTrue(payload['stationary'])
 
     def test_status_shows_reported_error(self):
         self.state.report_error(u'Problem beim Verbinden mit Feinstaubsensor!')

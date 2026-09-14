@@ -3,12 +3,18 @@
   <head>
     <title>Mobiler Feinstaubsensor</title>
     <meta http-equiv="content-type" content="text/html; charset=utf-8">
-    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
-    <script type="text/javascript" src="/static/jquery.mobile-1.4.5.css"></script>
+    <!-- jQuery nur einmal und lokal. Vorher wurde zusaetzlich jQuery 1.4.2
+         per http:// von googleapis geladen (Mixed Content, und ohne Netz
+         gar nicht) und jquery.mobile-1.4.5.css faelschlich als <script>
+         eingebunden. jQuery Mobile lag ohnehin nur als CSS vor -- das
+         zugehoerige JS war nie im Repo -- und ist entfernt. -->
     <script type="text/javascript" src="/static/jquery-1.8.2.min.js"></script>
     <script type="text/javascript" src="/static/Chart.min.js"></script>
     <script type="text/javascript">
-	    var $SCRIPT_ROOT = 'http://localhost:8080'
+      // Leer = relative URLs. Vorher stand hier http://localhost:8080 fest
+      // verdrahtet, wodurch die Seite von einem anderen Geraet im WLAN
+      // nicht funktionierte.
+      var $SCRIPT_ROOT = '';
     </script>
   </head>
   <body>
@@ -17,25 +23,39 @@
       refreshTimer = null;
       refreshInterval = 1000;
 
+      // Buttons aus dem Serverzustand ableiten, nicht aus dem letzten
+      // Klick -- nach einem Reload stimmte die Anzeige sonst nicht mehr.
+      function applyMode(data) {
+        $("#startBtn").prop('disabled', data.recording);
+        $("#stoppBtn").prop('disabled', !data.recording);
+        $("#startStatBtn").prop('disabled', data.stationary);
+        $("#stoppStatBtn").prop('disabled', !data.stationary);
+      }
+
       function refreshStatus() {
-	      $.ajax({
-		      type: "GET",
-		      url: $SCRIPT_ROOT + "/status/",
-		      contentType: "application/json; charset=utf-8",
-		      data: { echoValue: $('input[name="statusBtn"]').val() },
-		      success: function(data) {
-			      $('#echoResultStatus').text(data.value);        
-			      $('#echolat').text(data.lat);
-			      $('#echolon').text(data.lon);
-			      $('#echopm_10').text(data.pm_10);
-			      $('#echopm_10').css("background-color", data.pm_10_color);
-			      $('#echopm_25').text(data.pm_25);
-			      $('#echopm_25').css("background-color", data.pm_25_color);
-			      $('#echoerror').text(data.error_msg);
-			      addData( myChart, "", data.pm_10, data.pm_25 );
-			    }
-		    });     
-	    };
+        $.ajax({
+          type: "GET",
+          url: $SCRIPT_ROOT + "/status/",
+          dataType: "json",
+          success: function(data) {
+            $('#echoResultStatus').text(data.value);
+            $('#echolat').text(data.lat);
+            $('#echolon').text(data.lon);
+            $('#echopm_10').text(data.pm_10);
+            $('#echopm_10').css("background-color", data.pm_10_color);
+            $('#echopm_25').text(data.pm_25);
+            $('#echopm_25').css("background-color", data.pm_25_color);
+            $('#echoerror').text(data.error_msg);
+            applyMode(data);
+            addData( myChart, "", data.pm_10, data.pm_25 );
+          },
+          error: function() {
+            // Ohne diesen Zweig blieb die Anzeige beim letzten Wert
+            // stehen, wenn der Server weg war.
+            $('#echoerror').text("Keine Verbindung zur Messanwendung.");
+          }
+        });
+      };
 
       function periodicRefresh() {
 	      refreshStatus();
@@ -52,81 +72,44 @@
 	      refreshTimer = setTimeout(periodicRefresh, refreshInterval);
 	    }
 
+      // Ein Modus-Button: anstossen und danach den Serverzustand
+      // uebernehmen. applyMode() setzt die Buttons, nicht der Handler.
+      function modeButton(id, path) {
+        $(id).click(function() {
+          if ($(this).prop('disabled')) { return; }
+          $.ajax({
+            type: "GET",
+            url: $SCRIPT_ROOT + path,
+            dataType: "json",
+            success: function(data) {
+              $('#echoResult').text(data.value);
+              refreshStatus();
+            },
+            error: function() {
+              $('#echoerror').text("Befehl konnte nicht gesendet werden.");
+            }
+          });
+        });
+      }
+
       $(function() {
-	      $('#refreshRate').change(function() {
-		      startPeriodicRefresh($('#refreshRate').val());
-		    });
-	      startPeriodicRefresh(10);
+        $('#refreshRate').change(function() {
+          startPeriodicRefresh($('#refreshRate').val());
+        });
+        startPeriodicRefresh(10);
 
-	      $("#refreshBtn").click(function() {
-		      refreshStatus();     
-		    });
+        $("#refreshBtn").click(function() {
+          refreshStatus();
+        });
 
-	      $("#startBtn").click(function() {
-		      $(this).prop('disabled', true);
-		      $("#stoppBtn").prop('disabled', false);
+        modeButton("#startBtn", "/start/");
+        modeButton("#stoppBtn", "/stopp/");
+        modeButton("#startStatBtn", "/staton/");
+        modeButton("#stoppStatBtn", "/statoff/");
 
-		      $.ajax({
-			      type: "GET",
-			      url: $SCRIPT_ROOT + "/start/",
-			      contentType: "application/json; charset=utf-8",
-			      data: { echoValue: $('input[name="startBtn"]').val() },
-			      success: function(data) {
-				      $('#echoResult').text(data.value);
-				      refreshStatus();
-				    }
-			    });     
-		    });
-	      $("#stoppBtn").click(function() {
-		      $(this).prop('disabled', true);
-		      $("#startBtn").prop('disabled', false);
-
-		      $.ajax({
-			      type: "GET",
-			      url: $SCRIPT_ROOT + "/stopp/",
-			      contentType: "application/json; charset=utf-8",
-			      data: { echoValue: $('input[name="stoppBtn"]').val() },
-			      success: function(data) {
-				      $('#echoResult').text(data.value);
-				      refreshStatus();
-				    }
-			    });     
-		    });
-             $("#stoppBtn").prop('disabled', true);
-             <!-- stationary mode-->
-	      $("#startStatBtn").click(function() {
-		      $(this).prop('disabled', true);
-		      $("#stoppStatBtn").prop('disabled', false);
-
-		      $.ajax({
-			      type: "GET",
-			      url: $SCRIPT_ROOT + "/staton/",
-			      contentType: "application/json; charset=utf-8",
-			      data: { echoValue: $('input[name="startStatBtn"]').val() },
-			      success: function(data) {
-				      $('#echoResult').text(data.value);
-				      refreshStatus();
-				    }
-			    });     
-		    });
-	      $("#stoppStatBtn").click(function() {
-		      $(this).prop('disabled', true);
-		      $("#startStatBtn").prop('disabled', false);
-
-		      $.ajax({
-			      type: "GET",
-			      url: $SCRIPT_ROOT + "/statoff/",
-			      contentType: "application/json; charset=utf-8",
-			      data: { echoValue: $('input[name="stoppStatBtn"]').val() },
-			      success: function(data) {
-				      $('#echoResult').text(data.value);
-				      refreshStatus();
-				    }
-			    });     
-		    });
-             $("#stoppStatBtn").prop('disabled', true);
-             <!---->
-	    });
+        // Sofort einmal lesen, damit die Buttons von Anfang an stimmen.
+        refreshStatus();
+      });
     </script>
 
     <style media="screen">
@@ -217,21 +200,21 @@ select {
 	<canvas id="mycanvas"></canvas>
       </div>
       <script>
-	// used for example purposes
-	function getRandomIntInclusive(min, max) {
-		  min = Math.ceil(min);
-		  max = Math.floor(max);
-		  return Math.floor(Math.random() * (max - min + 1)) + min;
-		}
-
 	// Adding and removing data is supported by changing the data array.
+	// Bei 1 Sekunde Aktualisierungsrate kaemen pro Stunde 3600 Punkte
+	// zusammen; der Chart wurde mit der Zeit immer langsamer. Deshalb ein
+	// gleitendes Fenster.
+	var MAX_POINTS = 300;
+
 	function addData(chart, label, data1, data2) {
 		  chart.data.labels.push(label);
-		  //    chart.data.datasets.forEach((dataset) => {
-		  //  dataset.data.push(data);
 		  chart.data.datasets[0].data.push(data1);
 		  chart.data.datasets[1].data.push(data2);
-		  //});
+		  while (chart.data.labels.length > MAX_POINTS) {
+			    chart.data.labels.shift();
+			    chart.data.datasets[0].data.shift();
+			    chart.data.datasets[1].data.shift();
+			  }
 		  chart.update(0); // 0 = no animation
 		}
 
@@ -301,8 +284,9 @@ select {
 			  }
 		});
 
-	//setInterval( function() { addData( myChart, "", getRandomIntInclusive(20, 30), getRandomIntInclusive(5, 15) ) }, 3000);
-	setInterval( function() { addData( myChart, "", data.pm_10, data.pm_25 ) }, 3000);
+	// Hier stand ein setInterval, das alle 3 Sekunden auf ein nicht
+	// existierendes 'data' zugriff und einen ReferenceError warf. Der
+	// Chart wird bereits aus refreshStatus() gefuettert.
       </script>
       <br />
       <hline></hline>
@@ -310,7 +294,7 @@ select {
 
       <strong>Aktualisierung der Anzeige</strong><br/>
       <div class="hflex stretched">
-	<select class="select" id="refreshRate" data-native-menu="false">
+	<select class="select" id="refreshRate">
 	  <option value="1">1 Sekunde</option>
 	  <option value="2">2 Sekunden</option>
 	  <option value="5">5 Sekunden</option>

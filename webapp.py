@@ -68,6 +68,11 @@ def create_app(state, on_shutdown=None):
             'pm_25': '%6.1f' % snap['pm_25'],
             'pm_25_color': kml.color_selection_rgb(snap['pm_25'], 'pm_25'),
             'error_msg': snap['error_msg'],
+            # Damit das Frontend den Button-Zustand aus dem Server
+            # ableiten kann statt aus dem letzten Klick -- nach einem
+            # Reload stimmte er sonst nicht mehr.
+            'recording': snap['recording'],
+            'stationary': snap['stationary'],
         }
         return ret_data
 
