@@ -16,6 +16,9 @@ try:
 except ImportError:                       # Python 2
     from urllib2 import urlopen
 
+# Dauer der kuenstlich langsamen Route.
+SLOW_SECONDS = 0.4
+
 
 class StoppableServerTest(unittest.TestCase):
 
@@ -24,6 +27,13 @@ class StoppableServerTest(unittest.TestCase):
 
         @self.app.route('/ping')
         def ping():
+            return {'ok': True}
+
+        @self.app.route('/langsam')
+        def langsam():
+            # Steht stellvertretend fuer alles, was auf dem Geraet
+            # dauern kann: eine Bluetooth-Abfrage, ein traeges Dateisystem.
+            time.sleep(SLOW_SECONDS)
             return {'ok': True}
 
         # Port 0: das Betriebssystem sucht einen freien Port. Feste Ports
@@ -64,6 +74,63 @@ class StoppableServerTest(unittest.TestCase):
 
     def test_port_is_assigned_by_os(self):
         self.assertGreater(self.srv.port, 0)
+
+
+class ConcurrencyTest(StoppableServerTest):
+    """Der wsgiref-Server ist von Haus aus einfaedrig: eine Anfrage nach
+    der anderen. Ein Browser oeffnet aber mehrere Verbindungen
+    gleichzeitig, und die Seite fragt den Status im Sekundentakt ab --
+    eine langsame Anfrage legte damit alles still."""
+
+    def _fetch(self, path, results, key):
+        started = time.time()
+        try:
+            urlopen(self._url(path), timeout=20).read()
+            results[key] = time.time() - started
+        except Exception as exc:
+            results[key] = exc
+
+    def test_requests_are_handled_in_parallel(self):
+        count = 5
+        results = {}
+        threads = [threading.Thread(target=self._fetch,
+                                    args=('/langsam', results, i))
+                   for i in range(count)]
+        started = time.time()
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        elapsed = time.time() - started
+
+        for key in range(count):
+            self.assertNotIsInstance(results.get(key), Exception,
+                                     'Anfrage %d: %r' % (key, results.get(key)))
+        # Seriell waeren es count * SLOW_SECONDS. Grosszuegige Grenze,
+        # aber deutlich unter der seriellen Dauer.
+        serial = count * SLOW_SECONDS
+        self.assertLess(elapsed, serial * 0.6,
+                        'Anfragen laufen seriell: %.2fs fuer %d Anfragen '
+                        '(seriell waeren %.2fs)' % (elapsed, count, serial))
+
+    def test_slow_request_does_not_block_a_fast_one(self):
+        """Der eigentliche Punkt: waehrend etwas Langsames laeuft, muss
+        die Statusabfrage weiter durchkommen."""
+        results = {}
+        slow = threading.Thread(target=self._fetch,
+                                args=('/langsam', results, 'slow'))
+        slow.start()
+        time.sleep(0.05)          # sicherstellen, dass die langsame laeuft
+
+        started = time.time()
+        urlopen(self._url('/ping'), timeout=20).read()
+        fast_elapsed = time.time() - started
+
+        slow.join(30)
+        self.assertNotIsInstance(results.get('slow'), Exception)
+        self.assertLess(fast_elapsed, SLOW_SECONDS * 0.7,
+                        'schnelle Anfrage musste auf die langsame warten: %.2fs'
+                        % fast_elapsed)
 
 
 class StopBeforeStartTest(unittest.TestCase):

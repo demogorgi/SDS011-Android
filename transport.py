@@ -10,6 +10,7 @@ from __future__ import absolute_import
 
 import base64
 import random
+import threading
 import time
 
 import config
@@ -70,6 +71,13 @@ class AndroidBluetoothTransport(Transport):
         self._uuid = uuid or config.SSP_UUID
         self._droid = androidhelper.Android()
         self._conn_id = None
+        # Alle androidhelper-Aufrufe laufen ueber dieselbe
+        # RPC-Verbindung. Seit der Webserver jede Anfrage in einem
+        # eigenen Thread bearbeitet, koennen die Geraeteliste aus
+        # /devices/ und das Lesen im SensorReader gleichzeitig
+        # zugreifen -- ineinander verschachtelte Aufrufe wuerden die
+        # Antworten durcheinanderbringen.
+        self._lock = threading.Lock()
 
     # -- Geraeteliste -------------------------------------------------
     def available_devices(self):
@@ -83,7 +91,8 @@ class AndroidBluetoothTransport(Transport):
         devices = []
         for method in ('bluetoothGetBondedDevices', 'bluetoothGetDiscoveredDevices'):
             try:
-                result = getattr(self._droid, method)()
+                with self._lock:
+                    result = getattr(self._droid, method)()
             except Exception as exc:
                 write_log(2, '{0} nicht verfuegbar: {1}'.format(method, exc))
                 continue
@@ -111,7 +120,9 @@ class AndroidBluetoothTransport(Transport):
         if self._conn_id is None:
             return False
         try:
-            return len(self._droid.bluetoothActiveConnections().result) > 0
+            with self._lock:
+                active = self._droid.bluetoothActiveConnections().result
+            return len(active) > 0
         except Exception as exc:
             write_log(0, 'bluetoothActiveConnections fehlgeschlagen: {0}'.format(exc))
             return False
@@ -121,8 +132,9 @@ class AndroidBluetoothTransport(Transport):
         self.disconnect()
         write_log(1, 'Verbinde mit {0}...'.format(address))
         try:
-            self._droid.toggleBluetoothState(True, False)
-            result = self._droid.bluetoothConnect(self._uuid, address)
+            with self._lock:
+                self._droid.toggleBluetoothState(True, False)
+                result = self._droid.bluetoothConnect(self._uuid, address)
         except Exception as exc:
             raise TransportError(u'Bluetooth nicht ansprechbar: {0}'.format(exc))
 
@@ -138,7 +150,8 @@ class AndroidBluetoothTransport(Transport):
         if self._conn_id is None:
             return
         try:
-            self._droid.bluetoothStop(self._conn_id)
+            with self._lock:
+                self._droid.bluetoothStop(self._conn_id)
         except Exception as exc:
             write_log(0, 'bluetoothStop fehlgeschlagen: {0}'.format(exc))
         self._conn_id = None
@@ -148,7 +161,8 @@ class AndroidBluetoothTransport(Transport):
         if self._conn_id is None:
             raise TransportError(u'Nicht verbunden.')
         try:
-            result = self._droid.bluetoothReadBinary(max_bytes, self._conn_id).result
+            with self._lock:
+                result = self._droid.bluetoothReadBinary(max_bytes, self._conn_id).result
         except Exception as exc:
             raise TransportError(u'Verbindung zum Sensor verloren: {0}'.format(exc))
         if not result:

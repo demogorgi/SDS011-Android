@@ -11,6 +11,11 @@ from __future__ import absolute_import
 
 import threading
 
+try:                                  # Python 3
+    from socketserver import ThreadingMixIn
+except ImportError:                   # Python 2
+    from SocketServer import ThreadingMixIn
+
 from bottle import ServerAdapter
 
 from logging_util import write_log
@@ -36,6 +41,24 @@ class StoppableWSGIRefServer(ServerAdapter):
         from wsgiref.simple_server import (make_server, WSGIRequestHandler,
                                            WSGIServer)
 
+        class ThreadingWSGIServer(ThreadingMixIn, WSGIServer):
+            """Jede Anfrage in einem eigenen Thread.
+
+            wsgiref bringt einen einfaedrigen Server mit: er bearbeitet
+            eine Anfrage nach der anderen. Ein Browser oeffnet aber
+            mehrere Verbindungen gleichzeitig (Seite, Skripte, die
+            Statusabfrage im Sekundentakt), und eine langsame Anfrage
+            legt dann alle uebrigen still -- bis hin zu abgelehnten
+            Verbindungen.
+
+            daemon_threads, damit eine haengende Anfrage das Beenden
+            nicht blockiert.
+            """
+            daemon_threads = True
+            # Ab Python 3.7 wartet server_close() sonst auf alle
+            # Request-Threads; mit daemon_threads wollen wir das nicht.
+            block_on_close = False
+
         quiet = self.quiet
 
         class FixedHandler(WSGIRequestHandler):
@@ -49,8 +72,8 @@ class StoppableWSGIRefServer(ServerAdapter):
                 if not quiet:
                     return WSGIRequestHandler.log_request(self, *args, **kwargs)
 
-        self.srv = make_server(self.host, self.port, app, WSGIServer,
-                               FixedHandler)
+        self.srv = make_server(self.host, self.port, app,
+                               ThreadingWSGIServer, FixedHandler)
         # Bei port=0 vergibt das Betriebssystem einen freien Port.
         self.port = self.srv.server_port
         self.started.set()
