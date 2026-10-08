@@ -73,11 +73,23 @@ class FakeGps(GpsSource):
         write_log(0, 'FakeGps geschlossen')
 
 
+class NoGps(GpsSource):
+    """Echter Sensor am PC oder Laptop: dort gibt es kein GPS, also
+    nie einen Fix."""
+
+    def read_position(self):
+        return (0, 0)
+
+
 def create_gps(state):
     if config.use_fake_hardware():
         write_log(1, 'Benutze simuliertes GPS (FakeGps)')
         return FakeGps()
-    return AndroidGps()
+    if config.on_android():
+        return AndroidGps()
+    # Echter Sensor am PC: androidhelper gibt es hier nicht.
+    write_log(1, 'Kein GPS auf diesem Rechner')
+    return NoGps()
 
 
 class GpsReader(threading.Thread):

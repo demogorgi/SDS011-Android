@@ -327,8 +327,7 @@ class FakeTransport(Transport):
 def create_transport():
     """Waehlt die Implementierung anhand der Umgebung.
 
-    SDS011_FAKE=0 auf dem Desktop erzwingt echte Hardware -- dann wird
-    ueber RFCOMM verbunden, genau wie auf dem Geraet ueber die
+    Auf dem Desktop ohne SDS011_FAKE=1 wird ueber RFCOMM verbunden, genau wie auf dem Geraet ueber die
     MAC-Adresse.
     """
     if config.use_fake_hardware():

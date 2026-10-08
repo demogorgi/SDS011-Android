@@ -8,6 +8,7 @@ import sys
 import unittest
 from io import BytesIO
 
+import config
 import webapp
 from state import AppState
 
@@ -269,6 +270,20 @@ class ConnectionRouteTest(unittest.TestCase):
         self.assertIn('name', payload['devices'][0])
         # Ohne Auswahl wird das erste Geraet vorgeschlagen.
         self.assertEqual(payload['selected'], payload['devices'][0]['id'])
+
+    def test_devices_prefers_configured_module(self):
+        """Am PC stehen Kopfhoerer und Co. vor dem HC-06 -- vorgeschlagen
+        wird trotzdem das Modul aus config.py."""
+        class Desktop(object):
+            def available_devices(self):
+                return [{'id': '10:94:97:35:97:B6', 'name': 'Logitech'},
+                        {'id': config.SDS011_BLUETOOTH_DEVICE_ID,
+                         'name': 'DSDTECH HC-06'}]
+
+        app = webapp.create_app(AppState(), transport=Desktop())
+        status, payload = call(app, '/devices/')
+        self.assertEqual(payload['selected'],
+                         config.SDS011_BLUETOOTH_DEVICE_ID)
 
     def test_devices_without_transport(self):
         app = webapp.create_app(AppState())

@@ -78,11 +78,11 @@ def on_android():
 def use_fake_hardware():
     """Steuert, ob echte oder simulierte Hardware benutzt wird.
 
-    SDS011_FAKE=1 erzwingt die Simulation (auch auf dem Geraet),
-    SDS011_FAKE=0 erzwingt echte Hardware. Ohne die Variable
-    entscheidet die Plattform.
+    Standard ist echte Hardware -- auf dem Geraet wie am PC, wo der
+    Sensor per Bluetooth angesprochen wird. SDS011_FAKE=1 schaltet die
+    Simulation ein (zum Entwickeln ohne Sensor).
     """
     value = os.environ.get('SDS011_FAKE')
-    if value is not None:
-        return value.strip().lower() not in ('', '0', 'false', 'no')
-    return not on_android()
+    if value is None:
+        return False
+    return value.strip().lower() not in ('', '0', 'false', 'no')

@@ -58,8 +58,8 @@ SDS011_FAKE=1 python main.py        # Windows: set SDS011_FAKE=1
 
 Danach `http://localhost:8080` im Browser oeffnen. Der simulierte Sensor
 liefert plausible Messwerte, das simulierte GPS faehrt eine kleine Runde.
-Ohne die Variable entscheidet die Plattform: auf dem Geraet
-(`ANDROID_ROOT` gesetzt) echte Hardware, sonst Simulation.
+Ohne die Variable wird echte Hardware benutzt -- auf dem Geraet wie am
+PC (siehe naechster Abschnitt).
 
 ### Echter Sensor am PC oder Laptop
 
@@ -68,7 +68,9 @@ HC05/HC06-Modul, also per Bluetooth:
 
 1. Das Modul einmal in den Bluetooth-Einstellungen des Betriebssystems
    koppeln. Windows verlangt fuer RFCOMM eine bestehende Kopplung.
-2. `SDS011_FAKE=0 python main.py` starten.
+2. `python main.py` starten. Echte Hardware ist der Standard; eine
+   eventuell noch gesetzte Variable `SDS011_FAKE=1` vorher entfernen
+   (cmd: `set SDS011_FAKE=`).
 3. Im Browser unter **Sensor** das Modul aus der Liste waehlen und auf
    **Verbinden** druecken.
 

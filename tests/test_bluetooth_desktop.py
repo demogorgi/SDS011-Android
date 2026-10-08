@@ -9,10 +9,13 @@ sich erst am Geraet.
 
 from __future__ import absolute_import
 
+import os
 import socket
 import unittest
 
 import bluetooth_desktop as bd
+import config
+import gps
 from transport import TransportError
 
 
@@ -140,3 +143,34 @@ class ConnectionTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DesktopGpsTest(unittest.TestCase):
+    """Echter Sensor am PC: kein androidhelper, kein GPS."""
+
+    def setUp(self):
+        self._saved = dict((k, os.environ.get(k))
+                           for k in ('SDS011_FAKE', 'ANDROID_ROOT'))
+        os.environ.pop('SDS011_FAKE', None)
+        os.environ.pop('ANDROID_ROOT', None)
+
+    def tearDown(self):
+        for key, value in self._saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def test_real_hardware_is_default(self):
+        self.assertFalse(config.use_fake_hardware())
+
+    def test_fake_only_on_request(self):
+        os.environ['SDS011_FAKE'] = '1'
+        self.assertTrue(config.use_fake_hardware())
+        os.environ['SDS011_FAKE'] = '0'
+        self.assertFalse(config.use_fake_hardware())
+
+    def test_no_gps_instead_of_androidhelper(self):
+        source = gps.create_gps(None)
+        self.assertIsInstance(source, gps.NoGps)
+        self.assertEqual(source.read_position(), (0, 0))

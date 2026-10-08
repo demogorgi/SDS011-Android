@@ -65,7 +65,11 @@ def create_app(state, on_shutdown=None, transport=None):
                 state.report_error(u'Geraeteliste nicht lesbar: {0}'.format(exc))
         selected, _ = state.device()
         if selected is None and found:
-            selected = found[0]['id']
+            # Das Modul aus config.py vorauswaehlen, falls gekoppelt --
+            # am PC stehen sonst Kopfhoerer und Co. ganz oben.
+            ids = [entry['id'] for entry in found]
+            configured = config.SDS011_BLUETOOTH_DEVICE_ID
+            selected = configured if configured in ids else ids[0]
         return {'devices': found, 'selected': selected}
 
     @app.route('/connect/')
