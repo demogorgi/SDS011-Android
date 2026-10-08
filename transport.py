@@ -98,7 +98,11 @@ class AndroidBluetoothTransport(Transport):
                 continue
             if getattr(result, 'error', None) or not result.result:
                 continue
-            for entry in result.result:
+            entries = result.result
+            if isinstance(entries, dict):
+                # {Adresse: Name}
+                entries = [{'address': k, 'name': v} for k, v in entries.items()]
+            for entry in entries:
                 if isinstance(entry, dict):
                     address = entry.get('address') or entry.get('Address')
                     name = entry.get('name') or entry.get('Name') or address
@@ -111,9 +115,31 @@ class AndroidBluetoothTransport(Transport):
 
         if not devices:
             write_log(1, 'Keine Geraeteliste verfuegbar, benutze konfigurierte Adresse')
+            name = self._remote_name(self._default_device)
             devices = [{'id': self._default_device,
-                        'name': self._default_device + ' (aus config.py)'}]
+                        'name': name or self._default_device + ' (aus config.py)'}]
+
+        # Manche QPython-Versionen liefern nur Adressen ohne Namen.
+        for entry in devices:
+            if entry['name'] == entry['id']:
+                entry['name'] = self._remote_name(entry['id']) or entry['id']
         return devices
+
+    def _remote_name(self, address):
+        """Name eines gekoppelten Geraets, z. B. 'DSDTECH HC-06'.
+
+        Android kennt den Namen gekoppelter Geraete auch ohne bestehende
+        Verbindung. None, wenn die Abfrage nicht geht.
+        """
+        try:
+            with self._lock:
+                result = self._droid.bluetoothGetRemoteDeviceName(address)
+        except Exception as exc:
+            write_log(2, 'bluetoothGetRemoteDeviceName nicht verfuegbar: {0}'.format(exc))
+            return None
+        if getattr(result, 'error', None) or not result.result:
+            return None
+        return result.result
 
     # -- Verbindung ---------------------------------------------------
     def is_connected(self):
