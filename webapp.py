@@ -45,7 +45,7 @@ def create_app(state, on_shutdown=None, transport=None):
     @app.route('/')
     def index():
         return template('index.html', lookup=[config.TEMPLATEDIR],
-                        xsensor=config.XSENSOR)
+                        xsensor=config.XSENSOR, outdir=config.OUTDIR)
 
     @app.route('/static/<filename:path>')
     def serve_static(filename):

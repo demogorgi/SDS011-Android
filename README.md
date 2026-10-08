@@ -24,7 +24,11 @@ However optiprimes code is not working under python3.x. The urge to get the setu
       up in the file name, e.g. ``feinstaub_kletterhalle_20260914_22_47_27.csv``
     * **Stationär** -- the only mode that uploads to luftdaten.info. Switch it on
       only at the location agreed with luftdaten.
-10. In the output directory you will find the files and a log-file
+10. The files and a log-file are written to ``Download/Feinstaub`` on the phone,
+    reachable with any file manager. If QPython may not write there, they end
+    up in ``output/`` next to ``main.py``. The web page shows the directory in
+    use under "Weitere Informationen"; ``ANDROID_OUTDIR`` in ``config.py``
+    changes it.
     * The csv file's format is ``timestamp;pm2.5;pm_10;lat;lon``, decimal comma,
       coordinates with six decimals
       (earlier revisions of this README named the two measurement columns in the

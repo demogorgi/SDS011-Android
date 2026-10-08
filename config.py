@@ -37,13 +37,18 @@ LUFTDATEN_URL = 'https://api.luftdaten.info/v1/push-sensor-data/'
 HTTP_HOST = '0.0.0.0'
 HTTP_PORT = 8080
 
+# Wohin Messdateien und Log unter Android geschrieben werden. Download/
+# erreicht jeder Dateimanager ohne PC -- anders als Android/data/, das
+# nur QPython selbst lesen darf. Ist das Verzeichnis nicht beschreibbar
+# oder steht hier None, landet alles in output/ neben dem Programm.
+ANDROID_OUTDIR = '/storage/emulated/0/Download/Feinstaub'
+
 ##
 ## ENDE DER KONFIGURATIONSOPTIONEN
 ##
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-OUTDIR = os.path.join(BASEDIR, 'output')
-LOGFILE = os.path.join(OUTDIR, 'logfile.txt')
+FALLBACK_OUTDIR = os.path.join(BASEDIR, 'output')
 TEMPLATEDIR = os.path.join(BASEDIR, 'views')
 STATICDIR = os.path.join(BASEDIR, 'static')
 
@@ -75,6 +80,34 @@ def on_android():
     return os.environ.get('ANDROID_ROOT') is not None
 
 
+def is_writable_dir(path):
+    """Legt path bei Bedarf an und prueft mit einer Probedatei, ob
+    geschrieben werden darf. os.access() luegt unter Android, wenn der
+    Speicher per Berechtigung gesperrt ist."""
+    probe = os.path.join(path, '.schreibtest')
+    try:
+        if not os.path.isdir(path):
+            os.makedirs(path)
+        with open(probe, 'w') as handle:
+            handle.write('ok')
+        os.remove(probe)
+        return True
+    except (OSError, IOError):
+        return False
+
+
+def choose_outdir(android=None, preferred=None):
+    """Ausgabeverzeichnis: unter Android ANDROID_OUTDIR, sofern
+    beschreibbar, sonst output/ neben dem Programm."""
+    if android is None:
+        android = on_android()
+    if preferred is None:
+        preferred = ANDROID_OUTDIR
+    if android and preferred and is_writable_dir(preferred):
+        return preferred
+    return FALLBACK_OUTDIR
+
+
 def use_fake_hardware():
     """Steuert, ob echte oder simulierte Hardware benutzt wird.
 
@@ -86,3 +119,8 @@ def use_fake_hardware():
     if value is None:
         return False
     return value.strip().lower() not in ('', '0', 'false', 'no')
+
+
+# Erst hier, weil choose_outdir() die Funktionen oben braucht.
+OUTDIR = choose_outdir()
+LOGFILE = os.path.join(OUTDIR, 'logfile.txt')

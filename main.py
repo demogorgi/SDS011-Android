@@ -50,6 +50,7 @@ def main():
     write_log(1, 'Start, Python {0}'.format(sys.version.split()[0]))
     write_log(1, 'Android: {0}, simulierte Hardware: {1}'.format(
         config.on_android(), config.use_fake_hardware()))
+    write_log(1, 'Ausgabeverzeichnis: {0}'.format(config.OUTDIR))
 
     state = AppState()
 
