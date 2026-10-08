@@ -10,12 +10,79 @@ from __future__ import absolute_import
 
 import base64
 import random
+import re
 import threading
 import time
 
 import config
 import protocol
 from logging_util import write_log
+
+
+_MAC = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
+
+try:
+    _STRING_TYPES = (basestring,)  # Python 2
+except NameError:
+    _STRING_TYPES = (str,)
+
+
+def _is_mac(value):
+    return isinstance(value, _STRING_TYPES) and bool(_MAC.match(value))
+
+
+def _text(value):
+    """Nur echter Text taugt als Name -- sonst steht im Browser
+    '[object Object]'."""
+    if isinstance(value, _STRING_TYPES) and value.strip() and not _is_mac(value):
+        return value.strip()
+    return None
+
+
+def _name_of(obj):
+    """Name aus einem Geraeteobjekt, sonst None."""
+    if not isinstance(obj, dict):
+        return None
+    for key in ('name', 'Name', 'alias', 'Alias'):
+        if _text(obj.get(key)):
+            return _text(obj.get(key))
+    return None
+
+
+def parse_device_entries(raw):
+    """Antwort von bluetoothGetBondedDevices in [(Adresse, Name), ...].
+
+    Je nach QPython-Version kommt eine Liste von Adressen, eine Liste
+    von Objekten, {Adresse: Name}, {Name: Adresse} oder {Adresse:
+    Objekt}. Die Adresse wird deshalb am MAC-Format erkannt, nicht an
+    ihrer Position. Name ist None, wenn keiner dabei ist.
+    """
+    if _is_mac(raw):
+        return [(raw, None)]
+    if isinstance(raw, dict):
+        for key in ('address', 'Address', 'mac', 'MAC'):
+            if _is_mac(raw.get(key)):
+                return [(raw[key], _name_of(raw))]
+        found = []
+        for key, value in raw.items():
+            if _is_mac(key):
+                found.append((key, _text(value) or _name_of(value)))
+            elif _is_mac(value):
+                found.append((value, _text(key)))
+            elif isinstance(value, (dict, list, tuple)):
+                for address, name in parse_device_entries(value):
+                    found.append((address, name or _text(key)))
+        return found
+    if isinstance(raw, (list, tuple)):
+        macs = [item for item in raw if _is_mac(item)]
+        texts = [item for item in raw if _text(item)]
+        if len(macs) == 1 and len(texts) == 1 and len(raw) == 2:
+            return [(macs[0], texts[0])]
+        found = []
+        for item in raw:
+            found.extend(parse_device_entries(item))
+        return found
+    return []
 
 
 class TransportError(Exception):
@@ -98,18 +165,12 @@ class AndroidBluetoothTransport(Transport):
                 continue
             if getattr(result, 'error', None) or not result.result:
                 continue
-            entries = result.result
-            if isinstance(entries, dict):
-                # {Adresse: Name}
-                entries = [{'address': k, 'name': v} for k, v in entries.items()]
-            for entry in entries:
-                if isinstance(entry, dict):
-                    address = entry.get('address') or entry.get('Address')
-                    name = entry.get('name') or entry.get('Name') or address
-                else:
-                    address, name = entry, entry
-                if address and address not in [d['id'] for d in devices]:
-                    devices.append({'id': address, 'name': name})
+            # Die Form der Antwort unterscheidet sich je nach
+            # QPython-Version -- ins Log, damit man sie nachsehen kann.
+            write_log(1, u'{0}: {1!r}'.format(method, result.result)[:500])
+            for address, name in parse_device_entries(result.result):
+                if address not in [d['id'] for d in devices]:
+                    devices.append({'id': address, 'name': name or address})
             if devices:
                 break
 

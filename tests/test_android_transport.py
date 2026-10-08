@@ -79,5 +79,40 @@ class AndroidDeviceListTest(unittest.TestCase):
         self.assertEqual(self.devices()[0]['name'], u'HC-06 17')
 
 
+    def test_nested_objects_never_become_names(self):
+        """{Adresse: Objekt} ergab im Browser '[object Object]'."""
+        FakeDroid.answers = {'bluetoothGetBondedDevices': {
+            '00:14:03:05:59:17': {'name': 'DSDTECH HC-06', 'type': 1},
+            '20:18:5B:EA:80:26': {'bondState': 12}}}
+        found = dict((d['id'], d['name']) for d in self.devices())
+        self.assertEqual(found['00:14:03:05:59:17'], 'DSDTECH HC-06')
+        self.assertEqual(found['20:18:5B:EA:80:26'], '20:18:5B:EA:80:26')
+
+
+class ParseDeviceEntriesTest(unittest.TestCase):
+
+    def parse(self, raw):
+        from transport import parse_device_entries
+        return sorted(parse_device_entries(raw))
+
+    def test_name_to_address(self):
+        self.assertEqual(self.parse({'DSDTECH HC-06': '00:14:03:05:59:17'}),
+                         [('00:14:03:05:59:17', 'DSDTECH HC-06')])
+
+    def test_list_of_objects(self):
+        self.assertEqual(
+            self.parse([{'address': '00:14:03:05:59:17', 'name': 'HC-06'},
+                        {'Address': '20:18:5B:EA:80:26'}]),
+            [('00:14:03:05:59:17', 'HC-06'), ('20:18:5B:EA:80:26', None)])
+
+    def test_pairs(self):
+        self.assertEqual(self.parse([['HC-06', '00:14:03:05:59:17']]),
+                         [('00:14:03:05:59:17', 'HC-06')])
+
+    def test_junk_is_ignored(self):
+        self.assertEqual(self.parse({'count': 2, 'devices': None}), [])
+        self.assertEqual(self.parse(42), [])
+
+
 if __name__ == '__main__':
     unittest.main()
