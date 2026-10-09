@@ -17,6 +17,14 @@ import kml
 from logging_util import write_log
 
 
+# Absolut, damit es nicht auf das Arbeitsverzeichnis ankommt -- das ist
+# je nach QPython-Version ein anderes. Frueher stand hier lookup= statt
+# template_lookup=; bottle nahm das als Template-Variable und suchte in
+# ./views/, was nur klappte, wenn zufaellig im Projektordner gestartet
+# wurde. Eine feste Liste, weil bottle den Template-Cache ueber ihre
+# id() fuehrt.
+TEMPLATE_LOOKUP = [config.TEMPLATEDIR]
+
 def _query(name, default=u''):
     """Einen Query-Parameter als Text lesen.
 
@@ -44,7 +52,7 @@ def create_app(state, on_shutdown=None, transport=None):
 
     @app.route('/')
     def index():
-        return template('index.html', lookup=[config.TEMPLATEDIR],
+        return template('index.html', template_lookup=TEMPLATE_LOOKUP,
                         xsensor=config.XSENSOR, outdir=config.OUTDIR)
 
     @app.route('/static/<filename:path>')

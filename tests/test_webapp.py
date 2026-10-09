@@ -4,6 +4,7 @@
 from __future__ import absolute_import
 
 import json
+import os
 import sys
 import unittest
 from io import BytesIO
@@ -45,6 +46,29 @@ def call(app, path, method='GET'):
     except ValueError:
         payload = body
     return captured['status'], payload
+
+
+class IndexFromOtherDirectoryTest(unittest.TestCase):
+    """Altes QPython startet nicht im Projektordner -- die Seite muss
+    trotzdem gefunden werden."""
+
+    def setUp(self):
+        import bottle
+        import tempfile
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+        bottle.TEMPLATES.clear()
+
+    def tearDown(self):
+        import shutil
+        os.chdir(self._cwd)
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_index_renders(self):
+        status, body = call(webapp.create_app(AppState()), '/')
+        self.assertTrue(status.startswith('200'), status)
+        self.assertIn(b'deviceSelect', body)
 
 
 class RouteTest(unittest.TestCase):
