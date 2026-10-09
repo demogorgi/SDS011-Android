@@ -17,9 +17,35 @@ import config
 import kml
 from logging_util import write_log
 
+try:                                   # Python 3
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError
+except ImportError:                    # Python 2
+    from urllib2 import Request, urlopen, HTTPError
+
 
 # time.monotonic gibt es erst ab Python 3.3.
 _now = getattr(time, 'monotonic', time.time)
+
+
+def post_json(url, body, headers, timeout=30):
+    """POST mit JSON-Body, liefert den HTTP-Statuscode.
+
+    Nur Standardbibliothek: requests fehlt auf alten QPython-Versionen,
+    und pip scheitert dort oft schon an veralteten TLS-Zertifikaten.
+    Netzfehler werden geworfen, HTTP-Fehler als Statuscode geliefert.
+    """
+    if not isinstance(body, bytes):
+        body = body.encode('utf-8')
+    request = Request(url, data=body, headers=headers)
+    try:
+        response = urlopen(request, timeout=timeout)
+    except HTTPError as exc:
+        return exc.code
+    try:
+        return response.getcode()
+    finally:
+        response.close()
 
 
 def _coord(value):
@@ -185,14 +211,6 @@ class Recorder(threading.Thread):
     # -- Stationaerer Modus -------------------------------------------
     def _push_step(self):
         pm_25, pm_10 = self._state.measurement()
-        try:
-            import requests
-        except ImportError:
-            self._state.report_error(u'requests ist nicht installiert.')
-            write_log(0, 'requests fehlt -- stationaerer Modus nicht moeglich')
-            self._state.stationary = False
-            return
-
         headers = {
             'Content-Type': 'application/json',
             'X-Pin': '1',
@@ -202,9 +220,7 @@ class Recorder(threading.Thread):
                 '[{"value_type":"P1","value":"%s"},'
                 '{"value_type":"P2","value":"%s"}]}' % (pm_10, pm_25))
         try:
-            response = requests.post(config.LUFTDATEN_URL, headers=headers,
-                                     data=data, timeout=30)
-            status_code = response.status_code
+            status_code = post_json(config.LUFTDATEN_URL, data, headers)
         except Exception as exc:
             # Vorher stuerzte der Thread hier ohne Netz komplett ab.
             self._state.report_error(u'Fehler bei Datenuebertragung: {0}'.format(exc))
