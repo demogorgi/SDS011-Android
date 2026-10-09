@@ -28,6 +28,28 @@ except ImportError:                    # Python 2
 _now = getattr(time, 'monotonic', time.time)
 
 
+def _have_ssl():
+    try:
+        import ssl  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def upload_url(url, have_ssl=None):
+    """HTTPS, wenn Python es kann, sonst HTTP.
+
+    Altes QPython ist ohne ssl-Modul gebaut, urllib meldet dann
+    'unknown url type: https'. Die API nimmt auch HTTP an -- so senden
+    die Feinstaubsensoren von sensor.community ohnehin standardmaessig.
+    """
+    if have_ssl is None:
+        have_ssl = _have_ssl()
+    if not have_ssl and url.startswith('https://'):
+        return 'http://' + url[len('https://'):]
+    return url
+
+
 def post_json(url, body, headers, timeout=30):
     """POST mit JSON-Body, liefert den HTTP-Statuscode.
 
@@ -220,16 +242,16 @@ class Recorder(threading.Thread):
                 '[{"value_type":"P1","value":"%s"},'
                 '{"value_type":"P2","value":"%s"}]}' % (pm_10, pm_25))
         try:
-            status_code = post_json(config.LUFTDATEN_URL, data, headers)
+            status_code = post_json(upload_url(config.LUFTDATEN_URL), data, headers)
         except Exception as exc:
             # Vorher stuerzte der Thread hier ohne Netz komplett ab.
-            self._state.report_error(u'Fehler bei Datenuebertragung: {0}'.format(exc))
+            self._state.report_error(u'Fehler bei Datenübertragung: {0}'.format(exc))
             write_log(0, 'Upload fehlgeschlagen: {0}'.format(exc))
             return
 
         if status_code == 201:
             self._state.clear_error()
-            text = u'{0}: Daten per api.luftdaten uebertragen.'.format(
+            text = u'{0}: Daten zu luftdaten übertragen.'.format(
                 datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             self._state.set_status(text)
             write_log(1, text)
@@ -237,7 +259,7 @@ class Recorder(threading.Thread):
             # Lief frueher ohne 'global' ins Leere und erreichte das
             # Frontend nie.
             self._state.report_error(
-                u'Fehler bei Datenuebertragung, Status Code {0}.'.format(status_code))
+                u'Fehler bei Datenübertragung, Status Code {0}.'.format(status_code))
             write_log(0, 'Upload Status Code {0}'.format(status_code))
 
     def _wait_recording(self, seconds):

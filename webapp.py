@@ -70,7 +70,7 @@ def create_app(state, on_shutdown=None, transport=None):
                 found = transport.available_devices()
             except Exception as exc:
                 write_log(0, 'Geraeteliste nicht lesbar: {0}'.format(exc))
-                state.report_error(u'Geraeteliste nicht lesbar: {0}'.format(exc))
+                state.report_error(u'Geräteliste nicht lesbar: {0}'.format(exc))
         selected, _ = state.device()
         if selected is None and found:
             # Das Modul aus config.py vorauswaehlen, falls gekoppelt --
@@ -112,7 +112,7 @@ def create_app(state, on_shutdown=None, transport=None):
         abgelehnt, damit eine veraltete Seite es nicht doch ausloest."""
         if state.is_connected():
             return None
-        message = u'%s nicht moeglich: kein Sensor verbunden.' % what
+        message = u'%s nicht möglich: kein Sensor verbunden.' % what
         state.report_error(message)
         write_log(1, message)
         return {'value': message, 'refused': True}
@@ -142,21 +142,21 @@ def create_app(state, on_shutdown=None, transport=None):
         # Hier waere es besonders unangenehm: der stationaere Modus
         # laedt die Werte zu api.luftdaten hoch. Nullen aus einem nicht
         # verbundenen Sensor landeten in einem oeffentlichen Datensatz.
-        refused = _requires_sensor(u'Stationaerer Modus')
+        refused = _requires_sensor(u'Stationärer Modus')
         if refused:
             return refused
         state.recording = False
         state.local = False
         state.stationary = True
         state.clear_error()
-        state.set_status(u'Stationaerer Modus aktiv.')
-        return {'value': u'Stationaerer Modus gestartet.'}
+        state.set_status(u'Stationärer Modus aktiv.')
+        return {'value': u'Stationärer Modus gestartet.'}
 
     @app.route('/statoff/')
     def stopp_stat():
         state.stationary = False
-        state.set_status(u'Stationaerer Modus inaktiv.')
-        return {'value': u'Stationaerer Modus gestoppt.'}
+        state.set_status(u'Stationärer Modus inaktiv.')
+        return {'value': u'Stationärer Modus gestoppt.'}
 
     # -- Lokale Messung: nur Datei, kein Upload ------------------------
     @app.route('/localon/')
@@ -221,6 +221,6 @@ def create_app(state, on_shutdown=None, transport=None):
             worker = threading.Thread(target=on_shutdown)
             worker.daemon = True
             worker.start()
-        return {'value': u'...und Tschuess!'}
+        return {'value': u'...und Tschüss!'}
 
     return app

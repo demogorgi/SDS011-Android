@@ -23,7 +23,7 @@ _UTC = getattr(datetime, 'timezone', None)
 CONN_DISCONNECTED = u'getrennt'
 CONN_CONNECTING = u'verbinde'
 CONN_CONNECTED = u'verbunden'
-CONN_RETRYING = u'wartet auf naechsten Versuch'
+CONN_RETRYING = u'wartet auf nächsten Versuch'
 
 
 def utcnow():

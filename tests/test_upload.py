@@ -71,5 +71,22 @@ class PostJsonTest(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever).start()
 
 
+
+class UploadUrlTest(unittest.TestCase):
+    """Altes QPython ohne ssl: 'unknown url type: https'."""
+
+    URL = 'https://api.luftdaten.info/v1/push-sensor-data/'
+
+    def test_https_when_possible(self):
+        self.assertEqual(recorder.upload_url(self.URL, have_ssl=True), self.URL)
+
+    def test_http_without_ssl(self):
+        self.assertEqual(recorder.upload_url(self.URL, have_ssl=False),
+                         'http://api.luftdaten.info/v1/push-sensor-data/')
+
+    def test_http_stays_http(self):
+        url = 'http://example.invalid/push'
+        self.assertEqual(recorder.upload_url(url, have_ssl=False), url)
+
 if __name__ == '__main__':
     unittest.main()

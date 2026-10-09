@@ -210,7 +210,7 @@ class SensorRequiredTest(unittest.TestCase):
         SensorReader verbindet selbst wieder."""
         self.state.set_connection(u'verbunden')
         call(self.app, '/start/')
-        self.state.set_connection(u'wartet auf naechsten Versuch')
+        self.state.set_connection(u'wartet auf nächsten Versuch')
         self.assertTrue(self.state.recording)
 
 
