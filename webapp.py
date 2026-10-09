@@ -191,6 +191,9 @@ def create_app(state, on_shutdown=None, transport=None):
             'value': snap['status_text'],
             'lat': '%.5f' % float(snap['lat']),
             'lon': '%.5f' % float(snap['lon']),
+            'gps_available': snap['gps_available'],
+            'gps_age': (None if snap['gps_fix_at'] is None
+                        else int(state.gps_age())),
             'pm_10': '%6.1f' % snap['pm_10'],
             'pm_10_color': kml.color_selection_rgb(snap['pm_10'], 'pm_10'),
             'pm_25': '%6.1f' % snap['pm_25'],

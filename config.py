@@ -20,6 +20,11 @@ LOG_LEVEL = 1
 KML_INT = 5
 # Intervall in Sekunden, in dem die GPS-Position neu gelesen wird.
 GPS_INT = 5
+# Kommt so viele Sekunden keine neue Position, wird das GPS bei Android
+# ab- und wieder angemeldet. Bleibt es stumm, verdoppelt sich die
+# Wartezeit bis zu GPS_RESTART_MAX.
+GPS_RESTART_AFTER = 60
+GPS_RESTART_MAX = 600
 # Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus.
 STAT_INT = 240
 

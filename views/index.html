@@ -96,6 +96,27 @@
         }
       }
 
+      // Ob die Position aktuell ist oder seit Minuten stehen geblieben.
+      function showGps(data) {
+        var box = $('#echogps');
+        var age = data.gps_age;
+        box.removeClass('warn');
+        if (!data.gps_available) {
+          box.text('GPS: auf diesem Gerät nicht vorhanden');
+          return;
+        }
+        if (age === null || age === undefined) {
+          box.text('GPS: noch kein Signal').addClass('warn');
+          return;
+        }
+        var text = age < 120 ? age + ' s' : Math.floor(age / 60) + ' min';
+        if (age <= 15) {
+          box.text('GPS: aktuell (vor ' + text + ')');
+        } else {
+          box.text('GPS: kein Signal seit ' + text).addClass('warn');
+        }
+      }
+
       function refreshStatus() {
         $.ajax({
           type: "GET",
@@ -105,6 +126,7 @@
             $('#echoResultStatus').text(data.value);
             $('#echolat').text(data.lat);
             $('#echolon').text(data.lon);
+            showGps(data);
             $('#echopm_10').text(data.pm_10);
             $('#echopm_10').css("background-color", data.pm_10_color);
             $('#echopm_25').text(data.pm_25);
@@ -313,6 +335,7 @@ select {
 	  </tr>
 	</tbody>
       </table>
+      <div class="hint" id="echogps"></div>
 
       <br/>
       <hline></hline>

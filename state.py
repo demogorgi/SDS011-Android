@@ -10,6 +10,7 @@ from __future__ import absolute_import
 
 import datetime
 import threading
+import time
 
 
 # datetime.timezone gibt es erst ab Python 3.2; datetime.utcnow() ist
@@ -24,6 +25,11 @@ CONN_DISCONNECTED = u'getrennt'
 CONN_CONNECTING = u'verbinde'
 CONN_CONNECTED = u'verbunden'
 CONN_RETRYING = u'wartet auf nächsten Versuch'
+
+
+# Fuer Zeitabstaende: springt nicht, wenn die Uhr gestellt wird.
+# time.monotonic gibt es erst ab Python 3.3.
+monotonic = getattr(time, 'monotonic', time.time)
 
 
 def utcnow():
@@ -56,6 +62,10 @@ class AppState(object):
         self._lat = 0.0
         self._lon = 0.0
         self._utc = utcnow()
+        # GPS: gibt es eins, und wann kam die letzte neue Position
+        # (monotonic)? None = seit dem Start noch keine.
+        self._gps_available = True
+        self._gps_fix_at = None
         self._status_text = u'inaktiv'
         self._error_msg = u''
 
@@ -92,6 +102,23 @@ class AppState(object):
     def position(self):
         with self._lock:
             return (self._lat, self._lon, self._utc)
+
+    def set_gps_available(self, available):
+        with self._lock:
+            self._gps_available = bool(available)
+
+    def mark_gps_fix(self, at=None):
+        """Eine neue Position ist eingetroffen."""
+        with self._lock:
+            self._gps_fix_at = monotonic() if at is None else at
+
+    def gps_age(self, now=None):
+        """Sekunden seit der letzten neuen Position, None ohne Fix."""
+        with self._lock:
+            fix_at = self._gps_fix_at
+        if fix_at is None:
+            return None
+        return max(0.0, (monotonic() if now is None else now) - fix_at)
 
     # -- Anzeige ------------------------------------------------------
     def set_status(self, text):
@@ -159,6 +186,8 @@ class AppState(object):
                 'lat': self._lat,
                 'lon': self._lon,
                 'utc': self._utc,
+                'gps_available': self._gps_available,
+                'gps_fix_at': self._gps_fix_at,
                 'status_text': self._status_text,
                 'error_msg': self._error_msg,
                 'recording': self.recording,
