@@ -142,6 +142,7 @@ class AndroidBluetoothTransport(Transport):
         self._droid = androidhelper.Android()
         self._conn_id = None
         self._ready_unsupported = False
+        self._logged_answers = set()
         # Alle androidhelper-Aufrufe laufen ueber dieselbe
         # RPC-Verbindung. Der Webserver bearbeitet jede Anfrage in einem
         # eigenen Thread, die Geraeteliste aus /devices/ und das Lesen
@@ -171,8 +172,11 @@ class AndroidBluetoothTransport(Transport):
             if getattr(result, 'error', None) or not result.result:
                 continue
             # Die Form der Antwort unterscheidet sich je nach
-            # QPython-Version -- ins Log, damit man sie nachsehen kann.
-            write_log(1, u'{0}: {1!r}'.format(method, result.result)[:500])
+            # QPython-Version -- einmal ins Log, damit man sie nachsehen
+            # kann. Nicht bei jedem Abruf: das flutet das Log.
+            if method not in self._logged_answers:
+                self._logged_answers.add(method)
+                write_log(1, u'{0}: {1!r}'.format(method, result.result)[:500])
             for address, name in parse_device_entries(result.result):
                 if address not in [d['id'] for d in devices]:
                     devices.append({'id': address, 'name': name or address})
