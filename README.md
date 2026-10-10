@@ -278,6 +278,23 @@ Zwei Gruppen überspringen sich selbst, wenn ihre Voraussetzungen fehlen:
   abbrechen würde. Sie nutzt die Async-API, weil Playwrights Sync-API
   unter Python 3.14 abstürzt.
 
+### Ordner fürs Handy
+
+`python tools/build_phone.py` baut aus dem letzten Commit den Ordner
+`SDS011-Android-qpython2/SDS011-Android/` (nicht versioniert): alle
+Programmdateien außer `bluetooth_desktop.py`, dazu `views/`, `static/`,
+`bottle.py` und `LIESMICH.txt`. Diesen Ordner per USB aufs Handy kopieren,
+sodass `main.py` unter `qpython/projects/SDS011-Android/` liegt.
+
+Automatisch nach jedem Commit, Merge, Checkout und Rebase, sobald die Hooks
+einmal eingeschaltet sind:
+
+```
+git config core.hooksPath .githooks
+```
+
+Der Ordner wird jedes Mal neu erzeugt; Änderungen darin gehen verloren.
+
 ### Linter
 
 ```

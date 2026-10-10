@@ -4,3 +4,7 @@ output/
 .pytest_cache/
 .venv/
 venv/
+
+# Erzeugter Ordner fuers Handy (tools/build_phone.py)
+SDS011-Android-qpython2/
+*.zip

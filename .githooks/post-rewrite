@@ -1,0 +1,4 @@
+#!/bin/sh
+# Baut den Ordner fuers Handy neu (siehe tools/build_phone.py).
+# Ein Fehler hier blockiert nichts, er wird nur gemeldet.
+python tools/build_phone.py || echo "Handy-Ordner konnte nicht gebaut werden."

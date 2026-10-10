@@ -1,0 +1,26 @@
+Feinstaubmessung mit SDS011 unter QPython 2
+===========================================
+
+1. Den Ordner SDS011-Android so auf das Handy kopieren, dass main.py hier liegt:
+     Interner Speicher/qpython/projects/SDS011-Android/main.py
+2. Den HC-06 einmal in den Android-Bluetooth-Einstellungen koppeln (PIN meist 1234).
+3. QPython: Standort (GPS) und Bluetooth erlauben.
+4. Sensor mit Strom versorgen (Powerbank).
+5. QPython > Programs > Projects > SDS011-Android > Run.
+   Die Weboberflaeche oeffnet sich unter http://localhost:8080
+6. Unter "Sensor" den HC-06 waehlen und "Verbinden" druecken.
+   Die LED am HC-06 leuchtet dann dauerhaft.
+
+bottle.py liegt bei, pip ist nicht noetig -- auch nicht fuer den Upload.
+
+Messdateien und logfile.txt landen in Download/Feinstaub (mit jedem
+Dateimanager erreichbar). Darf QPython dort nicht schreiben, landen sie im
+Unterordner output/ -- welches Verzeichnis gilt, steht in der Weboberflaeche
+unter "Weitere Informationen". Einstellbar ueber ANDROID_OUTDIR in config.py.
+Die Bluetooth-Adresse des HC-06 und weitere Einstellungen stehen in config.py.
+
+Messung bei ausgeschaltetem Bildschirm: im QPython-Terminal der App ueber
+das Menue (drei Punkte) "Enable wakelock" einschalten und das Terminal in
+den Hintergrund ("Background") schicken. Dazu in Android die
+Akku-Optimierung fuer QPython ausschalten. "Enable wifi lock" braucht man
+hoechstens im stationaeren Modus mit Upload ueber WLAN.
