@@ -98,10 +98,8 @@ class AndroidGps(GpsSource):
             self._droid.stopLocating()
         except Exception:
             pass
-        try:
-            self._droid.exit()
-        except Exception:
-            pass
+        # Kein droid.exit(): altes QPython kennt den Befehl nicht
+        # ("Unknown RPC: exit"); die RPC-Sitzung endet mit dem Prozess.
         write_log(0, 'locatingStop!')
 
 

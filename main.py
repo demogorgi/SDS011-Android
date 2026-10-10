@@ -105,9 +105,10 @@ def main():
             if droid is not None:
                 try:
                     droid.wakeLockRelease()
-                    droid.exit()
                 except Exception as exc:
-                    write_log(0, u'droid.exit fehlgeschlagen: {0}'.format(to_text(exc)))
+                    write_log(0, u'wakeLockRelease fehlgeschlagen: {0}'.format(to_text(exc)))
+                # Kein droid.exit(): altes QPython kennt den Befehl nicht
+                # ("Unknown RPC: exit"); die RPC-Sitzung endet mit dem Prozess.
 
             # Zuletzt der Webserver -- danach kehrt bottle.run() zurueck.
             srv.stop(timeout=2.0)
