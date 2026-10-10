@@ -7,7 +7,7 @@ import threading
 
 import config
 from connection import Backoff
-from logging_util import write_log
+from logging_util import to_text, write_log
 from state import monotonic, utcnow
 
 
@@ -70,18 +70,18 @@ class AndroidGps(GpsSource):
                 return (fix['latitude'], fix['longitude'], False)
             return (0, 0, False)
         except Exception as exc:
-            write_log(0, 'GPS nicht lesbar: {0}'.format(exc))
+            write_log(0, u'GPS nicht lesbar: {0}'.format(to_text(exc)))
             return (0, 0, False)
 
     def restart(self):
         try:
             self._droid.stopLocating()
         except Exception as exc:
-            write_log(1, 'stopLocating fehlgeschlagen: {0}'.format(exc))
+            write_log(1, u'stopLocating fehlgeschlagen: {0}'.format(to_text(exc)))
         try:
             self._droid.startLocating(self._interval_ms, self._min_distance)
         except Exception as exc:
-            write_log(0, 'startLocating fehlgeschlagen: {0}'.format(exc))
+            write_log(0, u'startLocating fehlgeschlagen: {0}'.format(to_text(exc)))
 
     def close(self):
         try:
@@ -179,7 +179,7 @@ class GpsReader(threading.Thread):
         if not self._source.available:
             return
         if now - self._silent_since >= self._backoff.peek():
-            write_log(1, 'GPS seit {0:.0f}s stumm, melde neu an'.format(
+            write_log(1, u'GPS seit {0:.0f}s stumm, melde neu an'.format(
                 now - self._silent_since))
             self._source.restart()
             self.restarts += 1

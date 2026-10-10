@@ -24,7 +24,7 @@ import sys
 import threading
 
 import config
-from logging_util import write_log
+from logging_util import to_text, write_log
 from transport import Transport, TransportError
 
 # BTHENUM = Bluetooth Classic (kann RFCOMM), BTHLE = Low Energy (kann es
@@ -54,8 +54,8 @@ def _run(command, timeout=15):
         proc = subprocess.Popen(command, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
     except (OSError, IOError) as exc:
-        write_log(2, 'Geraeteliste: {0} nicht ausfuehrbar ({1})'.format(
-            command[0], exc))
+        write_log(2, u'Geraeteliste: {0} nicht ausfuehrbar ({1})'.format(
+            command[0], to_text(exc)))
         return ''
     try:
         out, _ = proc.communicate(timeout=timeout)
@@ -64,7 +64,7 @@ def _run(command, timeout=15):
         out, _ = proc.communicate()
     except Exception as exc:
         proc.kill()
-        write_log(2, 'Geraeteliste abgebrochen: {0}'.format(exc))
+        write_log(2, u'Geraeteliste abgebrochen: {0}'.format(to_text(exc)))
         return ''
     return out.decode('utf-8', 'replace')
 
@@ -140,7 +140,7 @@ class BluetoothSocketTransport(Transport):
         try:
             devices = self._lister()
         except Exception as exc:
-            write_log(0, 'Geraeteliste nicht lesbar: {0}'.format(exc))
+            write_log(0, u'Geraeteliste nicht lesbar: {0}'.format(to_text(exc)))
             devices = []
         if not devices:
             write_log(1, 'Keine gekoppelten Geraete gefunden, '
@@ -162,7 +162,7 @@ class BluetoothSocketTransport(Transport):
             raise TransportError(
                 u'Dieses Python kennt keine Bluetooth-Sockets.')
 
-        write_log(1, 'Verbinde mit {0} (RFCOMM Kanal {1})...'.format(
+        write_log(1, u'Verbinde mit {0} (RFCOMM Kanal {1})...'.format(
             address, self._channel))
         sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM,
                              socket.BTPROTO_RFCOMM)
@@ -177,12 +177,12 @@ class BluetoothSocketTransport(Transport):
         except Exception as exc:
             sock.close()
             raise TransportError(
-                u'Verbindung zu %s fehlgeschlagen: %s' % (address, exc))
+                u'Verbindung zu %s fehlgeschlagen: %s' % (address, to_text(exc)))
 
         sock.settimeout(self._read_timeout)
         with self._lock:
             self._socket = sock
-        write_log(1, 'Verbunden mit {0}'.format(address))
+        write_log(1, u'Verbunden mit {0}'.format(address))
 
     def disconnect(self):
         with self._lock:
@@ -193,7 +193,7 @@ class BluetoothSocketTransport(Transport):
         try:
             sock.close()
         except Exception as exc:
-            write_log(2, 'Socket schliessen fehlgeschlagen: {0}'.format(exc))
+            write_log(2, u'Socket schliessen fehlgeschlagen: {0}'.format(to_text(exc)))
         write_log(1, 'Bluetooth-Verbindung getrennt')
 
     # -- Daten --------------------------------------------------------
@@ -210,12 +210,12 @@ class BluetoothSocketTransport(Transport):
             # stehen, seit Python 3.10 ist es ein Alias von TimeoutError.
             return b''
         except Exception as exc:
-            raise TransportError(u'Verbindung zum Sensor verloren: %s' % exc)
+            raise TransportError(u'Verbindung zum Sensor verloren: %s' % to_text(exc))
 
         if not data:
             # recv liefert b'' nur, wenn die Gegenstelle zugemacht hat.
             raise TransportError(u'Sensor hat die Verbindung geschlossen.')
-        write_log(3, 'bluetooth read {0} byte'.format(len(data)))
+        write_log(3, u'bluetooth read {0} byte'.format(len(data)))
         return data
 
     def close(self):

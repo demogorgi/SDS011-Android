@@ -20,7 +20,7 @@ except ImportError:                   # Python 2
 
 from bottle import ServerAdapter
 
-from logging_util import write_log
+from logging_util import to_text, write_log
 
 # Erstes Byte eines TLS-ClientHello. Ein Browser, der https://
 # zu dieser Anwendung spricht, schickt genau das.
@@ -121,7 +121,7 @@ class StoppableWSGIRefServer(ServerAdapter):
             try:
                 self.srv.server_close()
             except Exception as exc:
-                write_log(0, 'server_close fehlgeschlagen: {0}'.format(exc))
+                write_log(0, u'server_close fehlgeschlagen: {0}'.format(to_text(exc)))
             write_log(1, 'Webserver beendet')
 
     def stop(self, timeout=5.0):
@@ -138,5 +138,5 @@ class StoppableWSGIRefServer(ServerAdapter):
             self.srv.shutdown()
             return True
         except Exception as exc:
-            write_log(0, 'Webserver-Shutdown fehlgeschlagen: {0}'.format(exc))
+            write_log(0, u'Webserver-Shutdown fehlgeschlagen: {0}'.format(to_text(exc)))
             return False

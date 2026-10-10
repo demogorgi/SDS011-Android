@@ -16,7 +16,7 @@ import time
 
 import config
 import protocol
-from logging_util import write_log
+from logging_util import to_text, write_log
 
 
 _MAC = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
@@ -161,7 +161,7 @@ class AndroidBluetoothTransport(Transport):
                 with self._lock:
                     result = getattr(self._droid, method)()
             except Exception as exc:
-                write_log(2, '{0} nicht verfuegbar: {1}'.format(method, exc))
+                write_log(2, u'{0} nicht verfuegbar: {1}'.format(method, to_text(exc)))
                 continue
             if getattr(result, 'error', None) or not result.result:
                 continue
@@ -196,7 +196,7 @@ class AndroidBluetoothTransport(Transport):
             with self._lock:
                 result = self._droid.bluetoothGetRemoteDeviceName(address)
         except Exception as exc:
-            write_log(2, 'bluetoothGetRemoteDeviceName nicht verfuegbar: {0}'.format(exc))
+            write_log(2, u'bluetoothGetRemoteDeviceName nicht verfuegbar: {0}'.format(to_text(exc)))
             return None
         if getattr(result, 'error', None) or not result.result:
             return None
@@ -211,19 +211,19 @@ class AndroidBluetoothTransport(Transport):
                 active = self._droid.bluetoothActiveConnections().result
             return len(active) > 0
         except Exception as exc:
-            write_log(0, 'bluetoothActiveConnections fehlgeschlagen: {0}'.format(exc))
+            write_log(0, u'bluetoothActiveConnections fehlgeschlagen: {0}'.format(to_text(exc)))
             return False
 
     def connect(self, device_id=None):
         address = device_id or self._default_device
         self.disconnect()
-        write_log(1, 'Verbinde mit {0}...'.format(address))
+        write_log(1, u'Verbinde mit {0}...'.format(address))
         try:
             with self._lock:
                 self._droid.toggleBluetoothState(True, False)
                 result = self._droid.bluetoothConnect(self._uuid, address)
         except Exception as exc:
-            raise TransportError(u'Bluetooth nicht ansprechbar: {0}'.format(exc))
+            raise TransportError(u'Bluetooth nicht ansprechbar: {0}'.format(to_text(exc)))
 
         if getattr(result, 'error', None):
             raise TransportError(u'Verbindung abgelehnt: {0}'.format(result.error))
@@ -231,7 +231,7 @@ class AndroidBluetoothTransport(Transport):
             raise TransportError(u'Sensor {0} nicht erreichbar.'.format(address))
 
         self._conn_id = result.result
-        write_log(1, 'Verbunden mit {0}'.format(address))
+        write_log(1, u'Verbunden mit {0}'.format(address))
 
     def disconnect(self):
         if self._conn_id is None:
@@ -240,7 +240,7 @@ class AndroidBluetoothTransport(Transport):
             with self._lock:
                 self._droid.bluetoothStop(self._conn_id)
         except Exception as exc:
-            write_log(0, 'bluetoothStop fehlgeschlagen: {0}'.format(exc))
+            write_log(0, u'bluetoothStop fehlgeschlagen: {0}'.format(to_text(exc)))
         self._conn_id = None
 
     # -- Daten --------------------------------------------------------
@@ -251,15 +251,15 @@ class AndroidBluetoothTransport(Transport):
             with self._lock:
                 result = self._droid.bluetoothReadBinary(max_bytes, self._conn_id).result
         except Exception as exc:
-            raise TransportError(u'Verbindung zum Sensor verloren: {0}'.format(exc))
+            raise TransportError(u'Verbindung zum Sensor verloren: {0}'.format(to_text(exc)))
         if not result:
             return b''
         try:
             data = base64.b64decode(result)
         except Exception as exc:
-            write_log(0, 'base64-Dekodierung fehlgeschlagen: {0}'.format(exc))
+            write_log(0, u'base64-Dekodierung fehlgeschlagen: {0}'.format(to_text(exc)))
             return b''
-        write_log(3, 'bluetooth read {0} byte'.format(len(data)))
+        write_log(3, u'bluetooth read {0} byte'.format(len(data)))
         return data
 
     def close(self):
@@ -377,7 +377,7 @@ class FakeTransport(Transport):
         self._connected = True
         self._reads = 0
         del self._buffer[:]
-        write_log(1, 'FakeTransport verbunden mit {0}'.format(self._device))
+        write_log(1, u'FakeTransport verbunden mit {0}'.format(self._device))
 
     def disconnect(self):
         if self._connected:

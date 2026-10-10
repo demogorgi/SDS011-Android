@@ -130,18 +130,6 @@ class LocalRecordingTest(unittest.TestCase):
 class NoUploadTest(unittest.TestCase):
     """Die Zusage, auf die es ankommt."""
 
-    def test_upload_only_runs_in_stationary_mode(self):
-        import inspect
-        import recorder as recorder_module
-
-        source = inspect.getsource(recorder_module.Recorder.run)
-        # _push_step() ist der einzige Ort, der zu luftdaten sendet.
-        self.assertIn('_push_step', source)
-        for line in source.splitlines():
-            if '_push_step' in line:
-                # Muss im stationary-Zweig stehen, nicht im Schreibzweig.
-                self.assertNotIn('local', line)
-
     def test_push_step_is_not_reached_while_local(self):
         calls = []
         state = AppState()

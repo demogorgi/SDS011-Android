@@ -15,7 +15,7 @@ import time
 
 import config
 import kml
-from logging_util import write_log
+from logging_util import to_text, write_log
 
 try:                                   # Python 3
     from urllib.request import Request, urlopen
@@ -114,6 +114,16 @@ def slugify(text, maxlen=40):
     return str(slug.strip('_')[:maxlen])
 
 
+# Arten eigener Hinweise: kein aktueller Messwert / Schreibfehler.
+HINT_STALE = 'stale'
+HINT_FAILURE = 'failure'
+
+# Die drei Modi, wie der Recorder sie unterscheidet.
+MODE_TRIP = 'messfahrt'
+MODE_LOCAL = 'lokal'
+MODE_STATIONARY = 'stationaer'
+
+
 def _timestamp():
     return datetime.datetime.now().strftime('%Y%m%d_%H_%M_%S')
 
@@ -124,7 +134,7 @@ class Recorder(threading.Thread):
     TICK = 0.5
 
     def __init__(self, state, outdir=None, kml_interval=None,
-                 stat_interval=None, tick=None):
+                 stat_interval=None, tick=None, max_age=None):
         threading.Thread.__init__(self)
         self.daemon = True
         self._state = state
@@ -134,8 +144,16 @@ class Recorder(threading.Thread):
         self._stat_interval = config.STAT_INT if stat_interval is None else stat_interval
         # Wie schnell ein Tastendruck bemerkt wird.
         self._tick = self.TICK if tick is None else tick
+        self._max_age = config.MAX_MEASUREMENT_AGE if max_age is None else max_age
         self._files_open = False
+        self._files_mode = None
         self._local_run = False
+        # Eigene Hinweise in der Oberflaeche, je Art. Nur die raeumt der
+        # Recorder wieder weg, nicht etwa einen Verbindungsfehler.
+        self._hints = {HINT_STALE: None, HINT_FAILURE: None}
+        # Zeitpunkt (monotonic) des letzten Uploads -- auch ueber Aus- und
+        # Wiedereinschalten hinweg nicht oefter als alle STAT_INT.
+        self._last_push = None
         self.last_files = None
         self._fname_25 = None
         self._fname_10 = None
@@ -163,6 +181,7 @@ class Recorder(threading.Thread):
         stamp = _timestamp()
         join = os.path.join
         self._local_run = local
+        self._files_mode = MODE_LOCAL if local else MODE_TRIP
         if local:
             slug = slugify(self._state.place())
             name = 'feinstaub_%s_%s.csv' % (slug, stamp) if slug                 else 'feinstaub_lokal_%s.csv' % stamp
@@ -177,7 +196,7 @@ class Recorder(threading.Thread):
         self._reset_averages()
         self._lat_old = None
         self._lon_old = None
-        write_log(1, 'Aufzeichnung nach {0}'.format(self._fname_csv))
+        write_log(1, u'Aufzeichnung nach {0}'.format(to_text(self._fname_csv)))
         self.last_files = (self._fname_25, self._fname_10, self._fname_csv)
 
     def _close_files(self):
@@ -188,9 +207,44 @@ class Recorder(threading.Thread):
         self._files_open = False
         write_log(1, 'KML-Dateien abgeschlossen')
 
+    # -- Meldungen ----------------------------------------------------
+    def _report(self, kind, message):
+        if self._state.error() != message:
+            write_log(0, message)
+        self._state.report_error(message)
+        self._hints[kind] = message
+
+    def _clear(self, kind):
+        hint = self._hints[kind]
+        if hint is not None and self._state.error() == hint:
+            self._state.clear_error()
+        self._hints[kind] = None
+
+    def _fresh_measurement(self, consequence):
+        """(pm_25, pm_10) oder None, wenn kein aktueller Messwert da ist.
+
+        Nach einem Verbindungsabbruch bleibt der letzte Wert im AppState
+        stehen. Ohne diese Pruefung wuerde er weiter aufgezeichnet und
+        sogar oeffentlich hochgeladen, als waere er frisch.
+        """
+        age = self._state.measurement_age()
+        if age is None or age > self._max_age:
+            self._report(HINT_STALE,
+                         u'Kein aktueller Messwert vom Sensor - {0}.'.format(consequence))
+            return None
+        self._clear(HINT_STALE)
+        return self._state.measurement()
+
     # -- Ein Messschritt ----------------------------------------------
     def _record_step(self):
-        pm_25, pm_10 = self._state.measurement()
+        values = self._fresh_measurement(u'nichts aufgezeichnet')
+        if values is None:
+            # Die Spur nach der Luecke neu beginnen, statt eine gerade
+            # Linie ueber den ganzen Ausfall zu ziehen.
+            self._lat_old = None
+            self._lon_old = None
+            return
+        pm_25, pm_10 = values
         lat, lon, utc = self._state.position()
 
         # Nur mit gueltigem Fix eine Linie zeichnen -- und nicht bei
@@ -229,10 +283,18 @@ class Recorder(threading.Thread):
         self._state.set_status(u'Mittelwerte: {0:.1f}, {1:.1f}'.format(
             self._pm_10_sum / self._avg_count,
             self._pm_25_sum / self._avg_count))
+        # Erst nach einem gelungenen Schreiben: ein bleibender
+        # Schreibfehler soll nicht bei jedem Versuch kurz verschwinden.
+        self._clear(HINT_FAILURE)
 
     # -- Stationaerer Modus -------------------------------------------
     def _push_step(self):
-        pm_25, pm_10 = self._state.measurement()
+        """Laedt den aktuellen Wert hoch. Liefert False, wenn mangels
+        aktuellem Messwert nichts gesendet wurde."""
+        values = self._fresh_measurement(u'nichts hochgeladen')
+        if values is None:
+            return False
+        pm_25, pm_10 = values
         headers = {
             'Content-Type': 'application/json',
             'X-Pin': '1',
@@ -245,9 +307,9 @@ class Recorder(threading.Thread):
             status_code = post_json(upload_url(config.LUFTDATEN_URL), data, headers)
         except Exception as exc:
             # Vorher stuerzte der Thread hier ohne Netz komplett ab.
-            self._state.report_error(u'Fehler bei Datenübertragung: {0}'.format(exc))
-            write_log(0, 'Upload fehlgeschlagen: {0}'.format(exc))
-            return
+            self._state.report_error(u'Fehler bei Datenübertragung: {0}'.format(to_text(exc)))
+            write_log(0, u'Upload fehlgeschlagen: {0}'.format(to_text(exc)))
+            return True
 
         if status_code == 201:
             self._state.clear_error()
@@ -260,13 +322,25 @@ class Recorder(threading.Thread):
             # Frontend nie.
             self._state.report_error(
                 u'Fehler bei Datenübertragung, Status Code {0}.'.format(status_code))
-            write_log(0, 'Upload Status Code {0}'.format(status_code))
+            write_log(0, u'Upload Status Code {0}'.format(status_code))
+        return True
 
-    def _wait_recording(self, seconds):
-        """Wartet zwischen zwei Messwerten, reagiert dabei aber in
-        Tick-Abstand auf Stop. Sonst blieben die KML-Dateien nach dem
-        Stop-Klick bis zu KML_INT Sekunden unabgeschlossen -- und ein
-        unabgeschlossenes KML ist in Google Earth wertlos.
+    def _mode(self):
+        if self._state.recording:
+            return MODE_TRIP
+        if self._state.local:
+            return MODE_LOCAL
+        if self._state.stationary:
+            return MODE_STATIONARY
+        return None
+
+    def _wait_in_mode(self, seconds, mode):
+        """Wartet, reagiert aber in Tick-Abstand auf einen Moduswechsel.
+
+        Wichtig fuer Stop (sonst bleiben die KML-Dateien bis zu KML_INT
+        Sekunden unabgeschlossen) und fuer den stationaeren Modus, der
+        sonst bis zu STAT_INT Sekunden lang den Start einer Messfahrt
+        verschluckt.
 
         Gegen eine feste Deadline gewartet, nicht in nominalen Schritten
         heruntergezaehlt: jeder Event.wait() kostet etwas Timer-Overhead,
@@ -282,35 +356,56 @@ class Recorder(threading.Thread):
             step = self._tick if self._tick < remaining else remaining
             if self._state.wait(step):
                 return True
-            if not self._state.recording:
+            if self._mode() != mode:
                 return True
 
     # -- Hauptschleife ------------------------------------------------
+    def _run_once(self):
+        mode = self._mode()
+        # Auch ein direkter Wechsel Messfahrt <-> lokal ohne Stop
+        # braucht neue Dateien.
+        if self._files_open and mode != self._files_mode:
+            self._close_files()
+
+        if mode in (MODE_TRIP, MODE_LOCAL):
+            if not self._files_open:
+                self._open_files(local=(mode == MODE_LOCAL))
+            if not self._wait_in_mode(self._kml_interval, mode):
+                self._record_step()
+            return
+
+        if mode == MODE_STATIONARY:
+            if self._last_push is not None:
+                since = _now() - self._last_push
+                if 0 <= since < self._stat_interval:
+                    self._wait_in_mode(self._stat_interval - since, mode)
+                    return
+            if self._push_step():
+                self._last_push = _now()
+                self._wait_in_mode(self._stat_interval, mode)
+            else:
+                # Ohne aktuellen Messwert (etwa direkt nach dem Verbinden)
+                # bald wieder versuchen statt erst nach STAT_INT.
+                self._wait_in_mode(self._kml_interval, mode)
+            return
+
+        # Kein Modus aktiv: alte Hinweise sind erledigt.
+        self._clear(HINT_STALE)
+        self._clear(HINT_FAILURE)
+        self._state.wait(self._tick)
+
     def run(self):
         while self._state.sensing:
-            writing = self._state.recording or self._state.local
-            if writing:
-                if not self._files_open:
-                    self._open_files(local=self._state.local)
-                self._wait_recording(self._kml_interval)
-                if not self._state.sensing:
-                    break
-                if self._state.recording or self._state.local:
-                    self._record_step()
-                continue
-
-            if self._files_open:
-                self._close_files()
-
-            if self._state.stationary:
-                self._push_step()
-                if self._state.wait(self._stat_interval):
-                    break
-                continue
-
-            if self._state.wait(self._tick):
-                break
+            try:
+                self._run_once()
+            except Exception as exc:
+                # Etwa Speicher voll oder Ordner weg. Der Thread darf daran
+                # nicht still sterben, waehrend die Oberflaeche weiter
+                # "aktiv" zeigt.
+                self._report(HINT_FAILURE,
+                             u'Aufzeichnung gestört: {0}'.format(to_text(exc)))
+                self._wait_in_mode(self._kml_interval, self._mode())
 
         if self._files_open:
             self._close_files()
-        write_log(0, 'sensingStop!')
+        write_log(0, u'sensingStop!')

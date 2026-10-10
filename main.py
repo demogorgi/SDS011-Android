@@ -25,7 +25,7 @@ import gps
 import sensor
 import transport
 import webapp
-from logging_util import write_log, rotate_logfile
+from logging_util import rotate_logfile, to_text, write_log
 from recorder import Recorder
 from server import StoppableWSGIRefServer
 from state import AppState
@@ -47,10 +47,10 @@ def build_threads(state):
 def main():
     config.ensure_outdir()
     rotate_logfile()
-    write_log(1, 'Start, Python {0}'.format(sys.version.split()[0]))
-    write_log(1, 'Android: {0}, simulierte Hardware: {1}'.format(
+    write_log(1, u'Start, Python {0}'.format(sys.version.split()[0]))
+    write_log(1, u'Android: {0}, simulierte Hardware: {1}'.format(
         config.on_android(), config.use_fake_hardware()))
-    write_log(1, 'Ausgabeverzeichnis: {0}'.format(config.OUTDIR))
+    write_log(1, u'Ausgabeverzeichnis: {0}'.format(to_text(config.OUTDIR)))
 
     state = AppState()
 
@@ -85,16 +85,16 @@ def main():
                     try:
                         thread.stop()
                     except Exception as exc:
-                        write_log(0, '{0}.stop() fehlgeschlagen: {1}'.format(name, exc))
+                        write_log(0, u'{0}.stop() fehlgeschlagen: {1}'.format(name, to_text(exc)))
                 thread.join(10)
-                write_log(1, '{0} beendet (alive={1})'.format(name, thread.is_alive()))
+                write_log(1, u'{0} beendet (alive={1})'.format(name, thread.is_alive()))
 
             if droid is not None:
                 try:
                     droid.wakeLockRelease()
                     droid.exit()
                 except Exception as exc:
-                    write_log(0, 'droid.exit fehlgeschlagen: {0}'.format(exc))
+                    write_log(0, u'droid.exit fehlgeschlagen: {0}'.format(to_text(exc)))
 
             # Zuletzt der Webserver -- danach kehrt bottle.run() zurueck.
             srv.stop(timeout=2.0)
@@ -119,5 +119,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as exc:
-        write_log(0, 'Abbruch: {0}'.format(exc))
+        write_log(0, u'Abbruch: {0}'.format(to_text(exc)))
         raise

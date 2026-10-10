@@ -59,6 +59,8 @@ class AppState(object):
 
         self._pm_10 = 0.0
         self._pm_25 = 0.0
+        # Wann der letzte Messwert kam (monotonic), None = noch keiner.
+        self._pm_at = None
         self._lat = 0.0
         self._lon = 0.0
         self._utc = utcnow()
@@ -81,10 +83,25 @@ class AppState(object):
         self._place = u''
 
     # -- Messwerte ----------------------------------------------------
-    def set_measurement(self, pm_25, pm_10):
+    def set_measurement(self, pm_25, pm_10, at=None):
         with self._lock:
             self._pm_25 = pm_25
             self._pm_10 = pm_10
+            self._pm_at = monotonic() if at is None else at
+
+    def measurement_age(self, now=None):
+        """Sekunden seit dem letzten Messwert, None ohne Messwert.
+
+        Auch None, wenn die Uhr zurueckgestellt wurde: unter Python 2 ist
+        monotonic nur time.time, und ein auf 0 geklemmtes Alter liesse
+        einen alten Wert frisch aussehen.
+        """
+        with self._lock:
+            pm_at = self._pm_at
+        if pm_at is None:
+            return None
+        age = (monotonic() if now is None else now) - pm_at
+        return age if age >= 0 else None
 
     def measurement(self):
         with self._lock:

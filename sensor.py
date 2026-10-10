@@ -14,7 +14,7 @@ import threading
 
 import state as state_module
 from connection import Backoff
-from logging_util import write_log
+from logging_util import to_text, write_log
 from protocol import FrameDecoder
 from transport import TransportError
 
@@ -42,7 +42,7 @@ class SensorReader(threading.Thread):
         try:
             self._transport.disconnect()
         except Exception as exc:
-            write_log(0, 'disconnect fehlgeschlagen: {0}'.format(exc))
+            write_log(0, u'disconnect fehlgeschlagen: {0}'.format(to_text(exc)))
         self._decoder = FrameDecoder()
         if self._state.connection_wanted:
             self._state.set_connection(state_module.CONN_RETRYING, message)
@@ -57,18 +57,18 @@ class SensorReader(threading.Thread):
             self._transport.connect(device_id)
         except TransportError as exc:
             delay = self._backoff.next_delay()
-            write_log(1, 'Verbindung fehlgeschlagen ({0}), naechster Versuch in {1:.0f}s'
-                      .format(exc, delay))
-            self._state.set_connection(state_module.CONN_RETRYING, u'%s' % exc)
+            write_log(1, u'Verbindung fehlgeschlagen ({0}), naechster Versuch in {1:.0f}s'
+                      .format(to_text(exc), delay))
+            self._state.set_connection(state_module.CONN_RETRYING, to_text(exc))
             self._state.wait(delay)
             return False
         except Exception as exc:
             # Unerwartetes nicht verschlucken, aber auch nicht den Thread
             # mitreissen.
             delay = self._backoff.next_delay()
-            write_log(0, 'Unerwarteter Fehler beim Verbinden: {0}'.format(exc))
+            write_log(0, u'Unerwarteter Fehler beim Verbinden: {0}'.format(to_text(exc)))
             self._state.set_connection(state_module.CONN_RETRYING,
-                                       u'Unerwarteter Fehler: {0}'.format(exc))
+                                       u'Unerwarteter Fehler: {0}'.format(to_text(exc)))
             self._state.wait(delay)
             return False
 
@@ -101,12 +101,12 @@ class SensorReader(threading.Thread):
             try:
                 chunk = self._transport.read(self.READ_SIZE)
             except TransportError as exc:
-                write_log(0, 'Lesefehler: {0}'.format(exc))
-                self._drop(u'%s' % exc)
+                write_log(0, u'Lesefehler: {0}'.format(to_text(exc)))
+                self._drop(to_text(exc))
                 continue
             except Exception as exc:
-                write_log(0, 'Unerwarteter Lesefehler: {0}'.format(exc))
-                self._drop(u'Unerwarteter Lesefehler: {0}'.format(exc))
+                write_log(0, u'Unerwarteter Lesefehler: {0}'.format(to_text(exc)))
+                self._drop(u'Unerwarteter Lesefehler: {0}'.format(to_text(exc)))
                 continue
 
             if not chunk:
@@ -118,7 +118,7 @@ class SensorReader(threading.Thread):
             for reading in self._decoder.feed(chunk):
                 self.frames_seen += 1
                 self._state.set_measurement(reading.pm_25, reading.pm_10)
-                write_log(3, 'pm_25={0}, pm_10={1}'.format(
+                write_log(3, u'pm_25={0}, pm_10={1}'.format(
                     reading.pm_25, reading.pm_10))
 
     def stop(self):

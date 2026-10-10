@@ -14,7 +14,7 @@ from bottle import Bottle, request, static_file, template
 
 import config
 import kml
-from logging_util import write_log
+from logging_util import to_text, write_log
 
 
 # Absolut, damit es nicht auf das Arbeitsverzeichnis ankommt -- das ist
@@ -69,8 +69,8 @@ def create_app(state, on_shutdown=None, transport=None):
             try:
                 found = transport.available_devices()
             except Exception as exc:
-                write_log(0, 'Geraeteliste nicht lesbar: {0}'.format(exc))
-                state.report_error(u'Geräteliste nicht lesbar: {0}'.format(exc))
+                write_log(0, u'Geraeteliste nicht lesbar: {0}'.format(to_text(exc)))
+                state.report_error(u'Geräteliste nicht lesbar: {0}'.format(to_text(exc)))
         selected, _ = state.device()
         if selected is None and found:
             # Das Modul aus config.py vorauswaehlen, falls gekoppelt --
@@ -97,7 +97,7 @@ def create_app(state, on_shutdown=None, transport=None):
         # Der eigentliche Verbindungsaufbau passiert im SensorReader --
         # die Route blockiert nicht, sie aeussert nur den Wunsch.
         state.connection_wanted = True
-        write_log(1, 'Verbindung angefordert: {0}'.format(device_id or 'Standard'))
+        write_log(1, u'Verbindung angefordert: {0}'.format(device_id or 'Standard'))
         return {'value': u'Verbindung wird aufgebaut...'}
 
     @app.route('/disconnect/')
@@ -174,7 +174,7 @@ def create_app(state, on_shutdown=None, transport=None):
         place = state.place()
         state.set_status(u'Lokale Messung aktiv%s.'
                          % (u' - ' + place if place else u''))
-        write_log(1, 'Lokale Messung gestartet: {0}'.format(place or '(ohne Ort)'))
+        write_log(1, u'Lokale Messung gestartet: {0}'.format(place or '(ohne Ort)'))
         return {'value': u'Lokale Messung gestartet. Es wird nichts hochgeladen.'}
 
     @app.route('/localoff/')

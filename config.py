@@ -27,6 +27,10 @@ GPS_RESTART_AFTER = 60
 GPS_RESTART_MAX = 600
 # Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus.
 STAT_INT = 240
+# Aelter darf ein Messwert nicht sein, um aufgezeichnet oder
+# hochgeladen zu werden. Der Sensor sendet etwa einmal pro Sekunde --
+# bleibt er laenger stumm, ist die Verbindung weg.
+MAX_MEASUREMENT_AGE = 10
 
 SSP_UUID = '00001101-0000-1000-8000-00805F9B34FB'
 # RFCOMM-Kanal auf dem Desktop. HC05/HC06 bieten SPP ueblicherweise

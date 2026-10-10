@@ -10,7 +10,7 @@ import datetime
 import io
 import os
 
-from logging_util import write_log
+from logging_util import to_text, write_log
 
 # Hier wird die Farbe fuer die Linie festgelegt.
 def color_selection(value):
@@ -187,7 +187,7 @@ def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_l
       file.write(u"   </Placemark>\n")
     return True
   except Exception as e:
-    write_log(0, 'KML-Fehler: {0}'.format(e))
+    write_log(0, u'KML-Fehler: {0}'.format(to_text(e)))
     return False
 
 # Diese Funktion schliesst das KML File ab.
@@ -197,7 +197,7 @@ def close_kml(file_name):
   # nur die schliessenden Tags hinein -- das Ergebnis war kein gueltiges
   # XML und in Google Earth unbrauchbar.
   if not os.path.exists(file_name):
-    write_log(1, 'close_kml: {0} existiert nicht, nichts abzuschliessen'.format(file_name))
+    write_log(1, u'close_kml: {0} existiert nicht, nichts abzuschliessen'.format(to_text(file_name)))
     return False
   try:
     with io.open(file_name, 'a', encoding='utf-8', newline='') as file:
@@ -205,5 +205,5 @@ def close_kml(file_name):
       file.write(u"</kml>\n")
     return True
   except Exception as e:
-    write_log(0, 'KML-Fehler: {0}'.format(e))
+    write_log(0, u'KML-Fehler: {0}'.format(to_text(e)))
     return False

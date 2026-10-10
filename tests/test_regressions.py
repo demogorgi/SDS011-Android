@@ -228,7 +228,7 @@ class KmlClosedPromptlyTest(unittest.TestCase):
 
 
 class WaitRecordingTest(unittest.TestCase):
-    """_wait_recording() gegen eine Fake-Uhr -- deterministisch, ohne
+    """_wait_in_mode() gegen eine Fake-Uhr -- deterministisch, ohne
     echte Wartezeit."""
 
     class FakeClock(object):
@@ -249,6 +249,8 @@ class WaitRecordingTest(unittest.TestCase):
     class FakeState(object):
         def __init__(self, clock, recording=True):
             self.recording = recording
+            self.local = False
+            self.stationary = False
             self.sensing = True
             self.clock = clock
 
@@ -274,7 +276,7 @@ class WaitRecordingTest(unittest.TestCase):
         recorder._now = clock.now
         try:
             start = clock.now()
-            aborted = rec._wait_recording(5.0)
+            aborted = rec._wait_in_mode(5.0, recorder.MODE_TRIP)
         finally:
             recorder._now = saved
 
@@ -304,7 +306,7 @@ class WaitRecordingTest(unittest.TestCase):
         saved = recorder._now
         recorder._now = clock.now
         try:
-            self.assertTrue(rec._wait_recording(60.0))
+            self.assertTrue(rec._wait_in_mode(60.0, recorder.MODE_TRIP))
         finally:
             recorder._now = saved
         # Nicht die vollen 60 s abgewartet.
