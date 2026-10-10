@@ -110,7 +110,7 @@ class _LoggingIsolated(unittest.TestCase):
     Tests unabhaengig von ihrer Reihenfolge laufen."""
 
     def setUp(self):
-        import config, logging_util
+        import logging_util
         self._saved = (logging_util._logfile, logging_util.get_level())
         handle, self.logpath = tempfile.mkstemp()
         os.close(handle)

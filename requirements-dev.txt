@@ -1,3 +1,6 @@
 # Entwicklung am PC (Fake-Hardware, kein androidhelper noetig).
 # Auf dem Geraet wird nur bottle gebraucht.
 bottle
+# Linter; Konfiguration in ruff.toml. Kein "ruff format": es entfernt
+# die u-Praefixe, die Python 2 braucht.
+ruff

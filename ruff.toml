@@ -1,0 +1,15 @@
+# Python 2.7 muss weiter laufen (QPython 2). Deshalb keine UP-Regeln:
+# die schlagen f-Strings vor und entfernen u-Praefixe und coding-Zeilen.
+target-version = "py37"
+line-length = 100
+extend-exclude = ["SDS011-Android-qpython2", "static", "output"]
+
+[lint]
+select = ["F", "E4", "E7", "E9", "W6", "B", "C4", "PLE", "RUF100"]
+ignore = ["B904"]          # "raise ... from" gibt es in Python 2 nicht
+
+[lint.per-file-ignores]
+"tests/*" = ["B017"]
+
+[format]
+exclude = ["*"]            # ruff format entfernt u-Praefixe, die Python 2 braucht

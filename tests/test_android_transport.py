@@ -84,7 +84,7 @@ class AndroidDeviceListTest(unittest.TestCase):
         FakeDroid.answers = {'bluetoothGetBondedDevices': {
             '00:14:03:05:59:17': {'name': 'DSDTECH HC-06', 'type': 1},
             '20:18:5B:EA:80:26': {'bondState': 12}}}
-        found = dict((d['id'], d['name']) for d in self.devices())
+        found = {d['id']: d['name'] for d in self.devices()}
         self.assertEqual(found['00:14:03:05:59:17'], 'DSDTECH HC-06')
         self.assertEqual(found['20:18:5B:EA:80:26'], '20:18:5B:EA:80:26')
 

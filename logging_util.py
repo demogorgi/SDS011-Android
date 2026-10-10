@@ -17,7 +17,7 @@ import threading
 import config
 
 try:                          # Python 2
-    _TEXT = unicode           # noqa: F821
+    _TEXT = unicode
 except NameError:             # Python 3
     _TEXT = str
 

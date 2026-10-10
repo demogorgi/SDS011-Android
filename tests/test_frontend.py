@@ -72,7 +72,7 @@ class TemplateTest(unittest.TestCase):
 
     def test_referenced_static_files_exist(self):
         refs = set()
-        for tag, attrs in self.tags:
+        for _tag, attrs in self.tags:
             for key in ('src', 'href'):
                 value = attrs.get(key, '')
                 if value.startswith('/static/'):
@@ -127,10 +127,10 @@ class TemplateTest(unittest.TestCase):
         from state import AppState
 
         app = webapp.create_app(AppState())
-        known = set(route.rule for route in app.routes)
+        known = {route.rule for route in app.routes}
         # Query-String abschneiden: /connect/?device= ist die Route /connect/
-        called = set(path.split('?')[0] for path in
-                     re.findall(r'\$SCRIPT_ROOT \+ "([^"]+)"', self.html))
+        called = {path.split('?')[0] for path in
+                     re.findall(r'\$SCRIPT_ROOT \+ "([^"]+)"', self.html)}
         self.assertTrue(called, 'keine Routen im Template gefunden')
         for path in called:
             self.assertIn(path, known, 'Route fehlt im Backend: %s' % path)
@@ -138,7 +138,7 @@ class TemplateTest(unittest.TestCase):
     def test_button_ids_are_wired(self):
         # Ueber den geparsten Baum, nicht per Regex -- im Template
         # kommen einfache und doppelte Anfuehrungszeichen vor.
-        ids = set(a['id'] for t, a in self.tags if a.get('id'))
+        ids = {a['id'] for t, a in self.tags if a.get('id')}
         for name in ('startBtn', 'stoppBtn', 'startStatBtn', 'stoppStatBtn',
                      'refreshBtn', 'echopm_10', 'echopm_25', 'echolat',
                      'echolon', 'echoerror'):

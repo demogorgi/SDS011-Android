@@ -52,7 +52,7 @@ class PostJsonTest(unittest.TestCase):
             'Content-Type': 'application/json', 'X-Sensor': 'raspi-1'})
         self.assertEqual(status, 201)
         headers, sent = _Handler.seen[0]
-        headers = dict((k.lower(), v) for k, v in headers.items())
+        headers = {k.lower(): v for k, v in headers.items()}
         self.assertEqual(headers['x-sensor'], 'raspi-1')
         self.assertEqual(headers['content-type'], 'application/json')
         self.assertEqual(json.loads(sent.decode('utf-8'))['sensordatavalues'][0]['value'], '2.5')

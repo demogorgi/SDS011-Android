@@ -7,7 +7,6 @@ import time
 import unittest
 
 import state as state_module
-import transport as transport_module
 from connection import Backoff
 from sensor import SensorReader
 from state import AppState

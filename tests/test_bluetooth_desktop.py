@@ -20,12 +20,12 @@ from transport import TransportError
 
 
 WINDOWS_OUTPUT = u"""
-Logitech BT Adapter|BTHENUM\DEV_1094973597B6\7&132E72C6&0&BLUETOOTHDEVICE_1094973597B6
-HC-06|BTHENUM\DEV_001403055917\7&132E72C6&0&BLUETOOTHDEVICE_001403055917
-HC-06|BTHENUM\DEV_001403055917\7&132E72C6&1&BLUETOOTHDEVICE_001403055917
-BBC micro:bit [gapot]|BTHLE\DEV_D7A87439A723\7&3813F365&0&D7A87439A723
-Generisches Attributprofil|BTHLEDevice\{00001801-0000-1000-8000-00805f9b34fb}
-Bluetooth Device (RFCOMM Protocol TDI)|BTH\MS_RFCOMM\6&2C4D2E3A&0&0
+Logitech BT Adapter|BTHENUM\\DEV_1094973597B6\\7&132E72C6&0&BLUETOOTHDEVICE_1094973597B6
+HC-06|BTHENUM\\DEV_001403055917\\7&132E72C6&0&BLUETOOTHDEVICE_001403055917
+HC-06|BTHENUM\\DEV_001403055917\\7&132E72C6&1&BLUETOOTHDEVICE_001403055917
+BBC micro:bit [gapot]|BTHLE\\DEV_D7A87439A723\\7&3813F365&0&D7A87439A723
+Generisches Attributprofil|BTHLEDevice\\{00001801-0000-1000-8000-00805f9b34fb}
+Bluetooth Device (RFCOMM Protocol TDI)|BTH\\MS_RFCOMM\\6&2C4D2E3A&0&0
 """
 
 LINUX_OUTPUT = u"""
@@ -149,8 +149,8 @@ class DesktopGpsTest(unittest.TestCase):
     """Echter Sensor am PC: kein androidhelper, kein GPS."""
 
     def setUp(self):
-        self._saved = dict((k, os.environ.get(k))
-                           for k in ('SDS011_FAKE', 'ANDROID_ROOT'))
+        self._saved = {k: os.environ.get(k)
+                           for k in ('SDS011_FAKE', 'ANDROID_ROOT')}
         os.environ.pop('SDS011_FAKE', None)
         os.environ.pop('ANDROID_ROOT', None)
 
