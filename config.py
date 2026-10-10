@@ -41,6 +41,10 @@ STAT_INT = 240
 # hochgeladen wird. Der Sensor sendet etwa einmal pro Sekunde -- bleibt
 # er laenger stumm, ist die Verbindung weg.
 MAX_MEASUREMENT_AGE = 10
+# Kommt so viele Sekunden lang kein Byte vom Sensor, gilt die Verbindung
+# als abgerissen und wird neu aufgebaut. Unter Android meldet ein
+# abgerissenes Bluetooth sonst nur "keine Daten", aber keinen Fehler.
+SENSOR_SILENCE_TIMEOUT = 15
 
 # UUID des Serial Port Profile (SPP), ueber das Android die Verbindung
 # zum Bluetooth-Modul aufbaut.

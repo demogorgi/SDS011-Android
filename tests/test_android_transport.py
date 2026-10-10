@@ -75,10 +75,23 @@ class AndroidReadTest(unittest.TestCase):
         self.assertEqual(self.reads, [64])
 
     def test_without_read_ready_it_reads_directly(self):
-        """Aeltere QPython-Versionen kennen bluetoothReadReady nicht."""
+        """Aeltere QPython-Versionen kennen bluetoothReadReady nicht. Dann
+        nur einmal fragen -- sonst bei jedem Lesen ein Fehl-RPC und eine
+        Logzeile, etwa fuenfmal pro Sekunde."""
+        asked = []
+        droid = self.transport._droid
+
+        class Counting(object):
+            def __getattr__(self, name):
+                if name == 'bluetoothReadReady':
+                    asked.append(1)
+                return getattr(droid, name)
+
+        self.transport._droid = Counting()
         self.assertEqual(self.transport.read(64), b'\xaa\xc0')
         self.assertEqual(self.transport.read(64), b'\xaa\xc0')
         self.assertEqual(self.reads, [64, 64])
+        self.assertEqual(len(asked), 1)
 
 
 class AndroidDeviceListTest(unittest.TestCase):

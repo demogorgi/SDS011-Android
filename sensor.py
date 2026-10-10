@@ -13,6 +13,7 @@ from __future__ import absolute_import
 
 import threading
 
+import config
 import state as state_module
 from state import monotonic
 from connection import Backoff
@@ -28,7 +29,8 @@ class SensorReader(threading.Thread):
     # etwa ein 10-Byte-Paket pro Sekunde.
     READ_SIZE = 64
 
-    def __init__(self, state, transport, idle_wait=0.2, backoff=None):
+    def __init__(self, state, transport, idle_wait=0.2, backoff=None,
+                 silence_timeout=None):
         threading.Thread.__init__(self)
         self.daemon = True
         self._state = state
@@ -36,6 +38,10 @@ class SensorReader(threading.Thread):
         self._decoder = FrameDecoder()
         self._idle_wait = idle_wait
         self._backoff = backoff if backoff is not None else Backoff()
+        self._silence_timeout = (config.SENSOR_SILENCE_TIMEOUT
+                                 if silence_timeout is None else silence_timeout)
+        # Zeitpunkt (monotonic) der letzten Bytes bzw. des Verbindens.
+        self._last_data = None
         self._running = True
         self.frames_seen = 0
 
@@ -55,6 +61,14 @@ class SensorReader(threading.Thread):
             self._state.set_connection(state_module.CONN_RETRYING, message)
         else:
             self._state.set_connection(state_module.CONN_DISCONNECTED, message)
+
+    def _drop_and_wait(self, message):
+        """Nach einem Abbruch die Backoff-Zeit abwarten, bevor neu verbunden
+        wird -- wie nach einem gescheiterten Versuch. Sonst verbindet ein
+        Sensor, der die Verbindung annimmt und gleich wieder verliert oder
+        schweigt, ohne Pause immer wieder."""
+        self._drop(message)
+        self._wait_retry(self._backoff.next_delay(), self._state.device()[0])
 
     def _wait_retry(self, delay, device_id):
         """Wartet bis zum naechsten Verbindungsversuch, endet aber sofort,
@@ -102,8 +116,8 @@ class SensorReader(threading.Thread):
             self._wait_retry(delay, device_id)
             return False
 
-        self._backoff.reset()
         self._decoder = FrameDecoder()
+        self._last_data = monotonic()
         self._state.set_connection(state_module.CONN_CONNECTED, u'')
         return True
 
@@ -132,18 +146,35 @@ class SensorReader(threading.Thread):
                 chunk = self._transport.read(self.READ_SIZE)
             except TransportError as exc:
                 write_log(0, u'Lesefehler: {0}'.format(to_text(exc)))
-                self._drop(to_text(exc))
+                self._drop_and_wait(to_text(exc))
                 continue
             except Exception as exc:
                 write_log(0, u'Unerwarteter Lesefehler: {0}'.format(to_text(exc)))
-                self._drop(u'Unerwarteter Lesefehler: {0}'.format(to_text(exc)))
+                self._drop_and_wait(u'Unerwarteter Lesefehler: {0}'.format(to_text(exc)))
                 continue
 
             if not chunk:
+                # Lange nichts: Verbindung als abgerissen behandeln. Unter
+                # Android meldet bluetoothReadReady nach einem Abbruch nur
+                # "keine Daten" und nie einen Fehler.
+                silent = monotonic() - self._last_data
+                if silent < 0:
+                    # Uhr zurueckgestellt (Python 2: monotonic = time.time).
+                    self._last_data = monotonic()
+                elif silent > self._silence_timeout:
+                    write_log(1, u'Seit {0:.0f}s keine Daten vom Sensor, verbinde neu'
+                              .format(self._silence_timeout))
+                    self._drop_and_wait(
+                        u'Keine Daten vom Sensor. Eingeschaltet und im Dauerbetrieb?')
+                    continue
                 # Nichts da: kurz warten, sonst dreht die Schleife leer.
                 if self._state.wait(self._idle_wait):
                     break
                 continue
+
+            self._last_data = monotonic()
+            # Erst echte Daten beweisen, dass die Verbindung steht.
+            self._backoff.reset()
 
             for reading in self._decoder.feed(chunk):
                 self.frames_seen += 1

@@ -86,6 +86,18 @@ class FakeTransportConnectionTest(unittest.TestCase):
             self.assertIn('name', entry)
 
 
+class CountingBackoff(Backoff):
+    """Zaehlt die Resets -- prueft das Verhalten ohne Timing-Annahmen."""
+
+    def __init__(self, *args, **kwargs):
+        Backoff.__init__(self, *args, **kwargs)
+        self.resets = 0
+
+    def reset(self):
+        self.resets += 1
+        Backoff.reset(self)
+
+
 class SupervisorTest(unittest.TestCase):
     """SensorReader gegen den Fake -- ohne Hardware."""
 
@@ -166,6 +178,75 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(fake.connect_attempts, 2)
         state.shutdown()
         reader.join(3)
+
+    def test_other_device_starts_with_the_shortest_wait(self):
+        """Das neue Geraet erbt nicht die lange Wartezeit des alten."""
+        fake = FakeTransport(interval=0.01, fail_connects=3)
+        state = AppState()
+        # 0,05 s, dann 50 s, dann 60 s (gedeckelt)
+        reader = SensorReader(state, fake, idle_wait=0.01,
+                              backoff=Backoff(start=0.05, factor=1000.0, maximum=60.0))
+        reader.start()
+        state.connection_wanted = True
+        self.assertTrue(self._wait_for(lambda: fake.connect_attempts == 2))
+        state.set_device('11:22:33:44:55:66')
+        # Dritter Versuch scheitert noch, der vierte kommt nach 0,05 s --
+        # ohne Reset erst nach 60 s.
+        self.assertTrue(self._wait_for(lambda: state.is_connected(), timeout=2.0))
+        state.shutdown()
+        reader.join(3)
+
+    def test_silent_sensor_counts_as_disconnected(self):
+        """Unter Android meldet ein abgerissenes Bluetooth nur "keine
+        Daten". Ohne Waechter bliebe die App ewig "verbunden"."""
+        class Silent(FakeTransport):
+            def read(self, max_bytes):
+                if not self.is_connected():
+                    raise TransportError(u'Nicht verbunden.')
+                return b''
+
+        silent = Silent(interval=0.01)
+        state = AppState()
+        backoff = CountingBackoff(start=0.3, maximum=1.0)
+        reader = SensorReader(state, silent, idle_wait=0.01, silence_timeout=0.2,
+                              backoff=backoff)
+        reader.start()
+        state.connection_wanted = True
+        # Im Leerlauf davor wird zurueckgesetzt; gezaehlt wird ab dem
+        # ersten Verbindungsversuch.
+        self.assertTrue(self._wait_for(lambda: silent.connect_attempts >= 1))
+        resets_before = backoff.resets
+        # Die Meldung steht in der Wartezeit vor dem naechsten Versuch.
+        self.assertTrue(self._wait_for(
+            lambda: state.connection()[0] == state_module.CONN_RETRYING
+            and u'Keine Daten vom Sensor' in state.connection()[1], timeout=3.0))
+        self.assertTrue(self._wait_for(lambda: silent.connect_attempts >= 3, timeout=5.0))
+        state.shutdown()
+        reader.join(3)
+        # Verbinden allein setzt die Wartezeit nicht zurueck -- sonst
+        # verbindet ein schweigender Sensor ohne Pause immer wieder.
+        self.assertEqual(backoff.resets, resets_before)
+        self.assertGreaterEqual(backoff.attempts, 2)
+
+    def test_read_error_after_connect_waits_before_reconnecting(self):
+        """Nimmt die Gegenstelle die Verbindung an und schliesst sie gleich
+        wieder, darf nicht ohne Pause neu verbunden werden (vorher ~1000
+        Versuche pro Sekunde)."""
+        class Closing(FakeTransport):
+            def read(self, max_bytes):
+                raise TransportError(u'Sensor hat die Verbindung geschlossen.')
+
+        closing = Closing(interval=0.01)
+        state = AppState()
+        reader = SensorReader(state, closing, idle_wait=0.01,
+                              backoff=Backoff(start=0.2, maximum=1.0))
+        reader.start()
+        state.connection_wanted = True
+        time.sleep(0.5)
+        state.shutdown()
+        reader.join(3)
+        # 0,2 s + 0,4 s Wartezeit: in 0,5 s hoechstens zwei Versuche.
+        self.assertLessEqual(closing.connect_attempts, 2)
 
     def test_failure_is_visible_in_state(self):
         """Der Grund muss in der Oberflaeche ankommen, nicht nur im Log."""

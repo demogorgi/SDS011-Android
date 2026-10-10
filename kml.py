@@ -161,7 +161,10 @@ def _write_kml_header(fname, type):
 # Google Earth also mit der Belastung. Alle Werte kommen als Text.
 # Achtung Reihenfolge: alt kommt als (lon, lat), neu als (lat, lon).
 # value_time wird nicht verwendet.
-# Existiert die Datei noch nicht, wird zuerst der Kopf geschrieben.
+# Existiert die Datei noch nicht, wird zuerst der Kopf geschrieben. Ist
+# sie schon abgeschlossen (etwa von repair_unclosed_kml einer zweiten
+# App-Instanz), wird der Abschluss vorher entfernt -- sonst laegen die
+# neuen Placemarks hinter </kml>.
 # Liefert True oder bei einem Schreibfehler False (mit Logeintrag).
 def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_lat, value_lon, value_time, value_fname, type, value_color):
   pm = value_pm
@@ -175,6 +178,8 @@ def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_l
   try:
     if not os.path.exists(fname):
       _write_kml_header(fname, type)
+    else:
+      _strip_trailer(fname)
     with io.open(fname, 'a', encoding='utf-8', newline='') as file:
       file.write(u"   <Placemark>\n")
       file.write(u"   <name>" + pm + "</name>\n")
@@ -199,7 +204,7 @@ def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_l
     return False
 
 # Schliesst die KML-Datei ab. Liefert True, sonst False (mit Logeintrag),
-# auch wenn die Datei fehlt.
+# auch wenn die Datei fehlt. Ist sie schon abgeschlossen, bleibt sie so.
 def close_kml(file_name):
   # Ohne geschriebenen Messwert gibt es keine Datei. Dann nichts anlegen:
   # nur die schliessenden Tags waeren kein gueltiges XML.
@@ -207,22 +212,68 @@ def close_kml(file_name):
     write_log(1, u'close_kml: {0} existiert nicht, nichts abzuschliessen'.format(to_text(file_name)))
     return False
   try:
-    with io.open(file_name, 'a', encoding='utf-8', newline='') as file:
-      file.write(u"  </Document>\n")
-      file.write(u"</kml>\n")
+    if _is_closed(file_name):
+      return True
+    with io.open(file_name, 'ab') as file:
+      file.write(_KML_TRAILER)
     return True
   except Exception as e:
     write_log(0, u'KML-Fehler: {0}'.format(to_text(e)))
     return False
 
 _KML_TRAILER = b"  </Document>\n</kml>\n"
+_PLACEMARK_END = b"</Placemark>\n"
+_HEADER_END = b"</name>\n"
+# Ein Placemark ist gut 600 Byte gross; im letzten Stueck der Datei
+# steckt also sicher das Ende des letzten vollstaendigen.
+_TAIL = 8192
+
+
+def _is_closed(path):
+  with io.open(path, 'rb') as file:
+    file.seek(0, 2)
+    file.seek(max(0, file.tell() - 64))
+    return file.read().rstrip().endswith(b'</kml>')
+
+
+def _strip_trailer(path):
+  """Entfernt einen Abschluss am Dateiende, damit weiter angehaengt werden
+  kann. Ohne Abschluss passiert nichts."""
+  with io.open(path, 'rb') as file:
+    file.seek(0, 2)
+    size = file.tell()
+    file.seek(max(0, size - len(_KML_TRAILER)))
+    if file.read() != _KML_TRAILER:
+      return
+  with io.open(path, 'r+b') as file:
+    file.seek(size - len(_KML_TRAILER))
+    file.truncate()
+
+
+def _find_cut(file, size):
+  """Byte-Position hinter dem letzten vollstaendigen Placemark, ersatzweise
+  hinter dem Kopf; None, wenn auch der Kopf unvollstaendig ist."""
+  start = max(0, size - _TAIL)
+  file.seek(start)
+  tail = file.read()
+  cut = tail.rfind(_PLACEMARK_END)
+  if cut >= 0:
+    return start + cut + len(_PLACEMARK_END)
+  if start > 0:
+    # Grosse Datei ohne Placemark-Ende im letzten Stueck: nicht raten.
+    return None
+  cut = tail.find(_HEADER_END)
+  return cut + len(_HEADER_END) if cut >= 0 else None
 
 
 # Schliesst KML-Dateien ab, die ein harter Abbruch (Android beendet
 # QPython, Akku leer) offen gelassen hat -- ohne Abschluss lehnt Google
 # Earth sie ab. Ein halb geschriebenes letztes Placemark wird
-# abgeschnitten. Nur beim Start aufrufen, solange nichts aufzeichnet.
-# Liefert die Namen der reparierten Dateien.
+# abgeschnitten; gelesen wird nur das Dateiende, gekuerzt wird an Ort und
+# Stelle. Zeichnet eine zweite App-Instanz noch in eine solche Datei auf,
+# entfernt write_kml_line den Abschluss beim naechsten Punkt wieder.
+# Unreparierbare heissen danach *.kml.defekt, damit sie nicht bei jedem
+# Start wieder auftauchen. Liefert die reparierten Namen.
 def repair_unclosed_kml(directory):
   repaired = []
   try:
@@ -234,23 +285,21 @@ def repair_unclosed_kml(directory):
       continue
     path = os.path.join(directory, name)
     try:
-      with io.open(path, 'rb') as file:
-        data = file.read()
-      if data.rstrip().endswith(b'</kml>'):
+      # Erst nur lesen: abgeschlossene Dateien duerfen schreibgeschuetzt sein.
+      if _is_closed(path):
         continue
-      cut = data.rfind(b'</Placemark>\n')
-      if cut >= 0:
-        data = data[:cut + len(b'</Placemark>\n')]
-      else:
-        # Nur der Kopf: bis hinter <name> behalten, sonst unbrauchbar.
-        cut = data.find(b'</name>\n')
-        if cut < 0:
-          write_log(0, u'KML nicht reparierbar: {0}'.format(to_text(name)))
-          continue
-        data = data[:cut + len(b'</name>\n')]
-      with io.open(path, 'wb') as file:
-        file.write(data + _KML_TRAILER)
-      repaired.append(name)
+      with io.open(path, 'rb') as file:
+        file.seek(0, 2)
+        cut = _find_cut(file, file.tell())
+      if cut is not None:
+        with io.open(path, 'r+b') as file:
+          file.seek(cut)
+          file.truncate()
+          file.write(_KML_TRAILER)
+        repaired.append(name)
+        continue
+      os.rename(path, path + '.defekt')
+      write_log(0, u'KML nicht reparierbar, umbenannt: {0}.defekt'.format(to_text(name)))
     except (IOError, OSError) as e:
       write_log(0, u'KML-Reparatur fehlgeschlagen: {0}'.format(to_text(e)))
   return repaired

@@ -206,3 +206,49 @@ class RepairUnclosedTest(unittest.TestCase):
 
     def test_missing_directory_is_no_error(self):
         self.assertEqual(kml.repair_unclosed_kml(os.path.join(self.tmp, 'fehlt')), [])
+
+    def test_recording_continues_after_a_second_instance_repaired_it(self):
+        """Eine zweite App-Instanz "repariert" die laufende Aufzeichnung
+        der ersten. Die schreibt danach weiter -- die neuen Placemarks
+        duerfen nicht hinter </kml> landen."""
+        path = self._trip('a.kml', 2)
+        kml.repair_unclosed_kml(self.tmp)
+        kml.write_kml_line('30.0', '10.0', '6.78', '51.43', '51.5', '6.9',
+                           'x', path, '25', '#FF00FF00')
+        kml.close_kml(path)
+        self.assertEqual(len(self._placemarks(path)), 3)
+        with io.open(path, 'rb') as fh:
+            self.assertEqual(fh.read().count(b'</kml>'), 1)
+
+    def test_close_twice_adds_one_trailer(self):
+        path = self._trip('a.kml', 1)
+        kml.close_kml(path)
+        kml.close_kml(path)
+        self.assertEqual(len(self._placemarks(path)), 1)
+
+    def test_large_file_without_placemark_end_in_tail_is_not_guessed(self):
+        """Steckt im letzten Stueck kein Placemark-Ende, wird nicht hinter
+        dem Kopf abgeschnitten (das verwarf die ganze Fahrt), sondern die
+        Datei als defekt beiseitegelegt -- und nur einmal gemeldet."""
+        path = self._trip('a.kml', 1)
+        with io.open(path, 'ab') as fh:
+            fh.write(b'x' * 20000)
+        self.assertEqual(kml.repair_unclosed_kml(self.tmp), [])
+        self.assertEqual(os.listdir(self.tmp), ['a.kml.defekt'])
+        self.assertEqual(kml.repair_unclosed_kml(self.tmp), [])
+        self.assertEqual(os.listdir(self.tmp), ['a.kml.defekt'])
+
+    def test_unrepairable_file_is_renamed_once(self):
+        path = os.path.join(self.tmp, 'kaputt.kml')
+        with io.open(path, 'wb') as fh:
+            fh.write(b"<?xml version='1.0' encoding='UTF-8'?>\n<kml xmlns=")
+        self.assertEqual(kml.repair_unclosed_kml(self.tmp), [])
+        self.assertEqual(os.listdir(self.tmp), ['kaputt.kml.defekt'])
+
+    def test_large_file_is_truncated_not_rewritten(self):
+        """Nur das Ende wird gelesen und an Ort und Stelle gekuerzt."""
+        path = self._trip('a.kml', 60)          # gut 30 KB
+        with io.open(path, 'ab') as fh:
+            fh.write(b'   <Placemark>\n   <name>99.0</na')
+        kml.repair_unclosed_kml(self.tmp)
+        self.assertEqual(len(self._placemarks(path)), 60)

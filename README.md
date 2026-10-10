@@ -57,13 +57,14 @@ meist `1234`).
 5. Sensor einschalten, dann in QPython *Programs → Projects → <Name> →
    Run*. Die Oberfläche öffnet sich unter `http://localhost:8080`.
 
-**Messung bei ausgeschaltetem Bildschirm:** Bewährt hat sich, im
-QPython-Terminal, in dem die App läuft, über das Menü (drei Punkte)
-*Enable wakelock* einzuschalten und das Terminal danach in den
-Hintergrund (*Background*) zu schicken. So bleibt die App aktiv, und
-Android trennt die Bluetooth-Verbindung nicht. *Enable wifi lock* hält
-das WLAN wach; das braucht man höchstens im stationären Modus, wenn der
-Upload über WLAN läuft.
+**Messung bei ausgeschaltetem Bildschirm:** Die App hält selbst einen
+Wake-Lock, Android kann QPython aber trotzdem in den Ruhezustand schicken.
+Erfahrungsgemäß hilft es, im QPython-Terminal, in dem die App läuft, über
+das Menü (drei Punkte) *Enable wakelock* einzuschalten und das Terminal
+danach in den Hintergrund (*Background*) zu schicken. Dann bleibt QPython
+aktiv, und die Bluetooth-Verbindung hält. *Enable wifi lock* hält das WLAN
+wach; das braucht man höchstens im stationären Modus, wenn der Upload über
+WLAN läuft.
 
 ## Bedienung
 
@@ -72,7 +73,13 @@ Upload über WLAN läuft.
 `config.py`, sofern gekoppelt. Die Anzeige darunter zeigt den Zustand
 (*getrennt*, *verbinde*, *verbunden*, *wartet auf nächsten Versuch*).
 Reißt die Verbindung ab, verbindet die App selbst neu, mit wachsenden
-Abständen. *Trennen* beendet das sofort, auch mitten in einer Wartezeit.
+Abständen. Als abgerissen gilt sie auch, wenn `SENSOR_SILENCE_TIMEOUT`
+Sekunden lang keine Daten kommen (Sensor aus, außer Reichweite). Der
+SDS011 muss dafür im Dauerbetrieb laufen (Werkseinstellung); wurde er mit
+einem anderen Programm auf periodisches Messen umgestellt, meldet die App
+ständig „Keine Daten vom Sensor“. *Trennen*
+beendet das Neuverbinden, auch mitten in einer Wartezeit; ein gerade
+laufender Verbindungsversuch wird noch zu Ende gebracht.
 
 **Messwerte:** PM10 und PM2.5 in µg/m³ mit Ampelfarbe: PM10 orange ab 40,
 PM2.5 orange ab 25, beide rot ab 50. Darunter ein Verlaufsdiagramm (die
@@ -152,7 +159,10 @@ Messwert, die Linie ist von grün (0) über gelb (25) nach rot (ab 50)
 gefärbt. Abgeschlossen werden die Dateien bei *Stop*, beim Moduswechsel
 und beim regulären Beenden der App. Wird QPython hart beendet (Akku leer,
 von Android geschlossen), fehlt der Abschluss zunächst; die App trägt ihn
-beim nächsten Start nach.
+beim nächsten Start nach. Zeichnet eine zweite, noch laufende Instanz in
+eine solche Datei weiter auf, entfernt sie den Abschluss beim nächsten
+Punkt wieder; die Datei bleibt also gültig. Nicht reparierbare Dateien
+heißen danach `*.kml.defekt`.
 
 <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Dust-trajectory.jpg" width=50% alt="Feinstaubspur in Google Earth"></div>
 
@@ -216,6 +226,7 @@ KONFIGURATIONSOPTIONEN*:
 | `GPS_MAX_AGE` | `15` | Position älter als so viele Sekunden: nicht aufzeichnen |
 | `STAT_INT` | `240` | Sekunden zwischen zwei Uploads im stationären Modus |
 | `MAX_MEASUREMENT_AGE` | `10` | Messwert älter als so viele Sekunden: nicht aufzeichnen, nicht hochladen |
+| `SENSOR_SILENCE_TIMEOUT` | `15` | So viele Sekunden keine Daten: Verbindung gilt als abgerissen, neu verbinden |
 | `SSP_UUID` | SPP-Standard-UUID | Bluetooth-Dienst des HC-Moduls (Android) |
 | `RFCOMM_CHANNEL` | `1` | RFCOMM-Kanal am PC |
 | `SDS011_BLUETOOTH_DEVICE_ID` | `00:14:03:05:59:17` | MAC des eigenen Moduls, vorgewählt bzw. Rückfall, wenn keine Geräteliste kommt |
@@ -294,11 +305,11 @@ aus. Die Hardware steckt hinter `transport.Transport` und
 | `protocol.py` | SDS011-Datenpakete zerlegen und bauen | – |
 | `transport.py` | Transport-Schnittstelle, Bluetooth unter Android, Simulation | config, protocol, logging_util; bluetooth_desktop erst bei Bedarf |
 | `bluetooth_desktop.py` | Bluetooth am PC über RFCOMM, Geräteliste | config, logging_util, transport |
-| `sensor.py` | Sensor-Thread: verbinden, lesen, neu verbinden | state, connection, logging_util, protocol, transport |
+| `sensor.py` | Sensor-Thread: verbinden, lesen, bei Abbruch oder Stille neu verbinden | config, state, connection, logging_util, protocol, transport |
 | `gps.py` | GPS-Quellen und GPS-Thread | config, connection, logging_util, state |
 | `recorder.py` | Aufzeichnungs-Thread: CSV/KML, Upload | config, kml, logging_util |
-| `kml.py` | KML- und CSV-Zeilen schreiben, Ampelfarben | logging_util |
+| `kml.py` | KML- und CSV-Zeilen schreiben, offene KML beim Start abschließen, Ampelfarben | logging_util |
 | `webapp.py` | Routen der Oberfläche (bottle) | config, kml, logging_util |
 | `server.py` | mehrfädiger, stoppbarer Webserver | logging_util |
-| `main.py` | startet und verdrahtet alles, beendet sauber | config, gps, sensor, transport, webapp, logging_util, recorder, server, state |
+| `main.py` | startet und verdrahtet alles, beendet sauber | config, gps, kml, sensor, transport, webapp, logging_util, recorder, server, state |
 | `views/index.html` | Oberfläche (jQuery, Chart.js aus `static/`) | – |
