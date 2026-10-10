@@ -10,6 +10,7 @@ beenden laesst und nicht bis zu STAT_INT Sekunden haengt.
 from __future__ import absolute_import
 
 import datetime
+import json
 import os
 import threading
 import time
@@ -140,6 +141,9 @@ def slugify(text, maxlen=40):
         slug = slug.replace('__', '_')
     return str(slug.strip('_')[:maxlen])
 
+
+# Kennung dieser Software beim Upload zu sensor.community.
+SOFTWARE_VERSION = 'SDS011-Android'
 
 # Arten eigener Hinweise: kein aktueller Messwert / Schreibfehler.
 HINT_STALE = 'stale'
@@ -358,9 +362,14 @@ class Recorder(threading.Thread):
             'X-Pin': '1',
             'X-Sensor': config.XSENSOR,
         }
-        data = ('{"software_version": "your_version", "sensordatavalues":'
-                '[{"value_type":"P1","value":"%s"},'
-                '{"value_type":"P2","value":"%s"}]}' % (pm_10, pm_25))
+        # P1 = PM10, P2 = PM2.5, Werte als Text -- so erwartet es die API.
+        data = json.dumps({
+            'software_version': SOFTWARE_VERSION,
+            'sensordatavalues': [
+                {'value_type': 'P1', 'value': str(pm_10)},
+                {'value_type': 'P2', 'value': str(pm_25)},
+            ],
+        })
         try:
             status_code = self._send(data, headers)
         except Exception as exc:

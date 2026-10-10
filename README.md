@@ -57,6 +57,14 @@ meist `1234`).
 5. Sensor einschalten, dann in QPython *Programs → Projects → <Name> →
    Run*. Die Oberfläche öffnet sich unter `http://localhost:8080`.
 
+**Messung bei ausgeschaltetem Bildschirm:** Bewährt hat sich, im
+QPython-Terminal, in dem die App läuft, über das Menü (drei Punkte)
+*Enable wakelock* einzuschalten und das Terminal danach in den
+Hintergrund (*Background*) zu schicken. So bleibt die App aktiv, und
+Android trennt die Bluetooth-Verbindung nicht. *Enable wifi lock* hält
+das WLAN wach; das braucht man höchstens im stationären Modus, wenn der
+Upload über WLAN läuft.
+
 ## Bedienung
 
 **Sensor:** Das Modul aus der Liste der gekoppelten Geräte wählen und
@@ -64,7 +72,7 @@ meist `1234`).
 `config.py`, sofern gekoppelt. Die Anzeige darunter zeigt den Zustand
 (*getrennt*, *verbinde*, *verbunden*, *wartet auf nächsten Versuch*).
 Reißt die Verbindung ab, verbindet die App selbst neu, mit wachsenden
-Abständen. *Trennen* beendet das.
+Abständen. *Trennen* beendet das sofort, auch mitten in einer Wartezeit.
 
 **Messwerte:** PM10 und PM2.5 in µg/m³ mit Ampelfarbe: PM10 orange ab 40,
 PM2.5 orange ab 25, beide rot ab 50. Darunter ein Verlaufsdiagramm (die
@@ -126,24 +134,25 @@ Informationen*.
 
 ## Dateiformate
 
-**CSV:** eine Zeile pro Messpunkt mit den Spalten Zeit, PM2.5, PM10,
-Breite, Länge, getrennt durch `;`. Ohne Kopfzeile, mit Dezimalkomma (für
-ein deutsches Excel):
+**CSV:** eine Kopfzeile, dann eine Zeile pro Messpunkt, getrennt durch
+`;`, mit Dezimalkomma (für ein deutsches Excel):
 
 ```
+Zeit;PM2.5;PM10;Breite;Laenge
 2026-10-10 00:42:55;9,8;20,2;51,440100;6,788400
 2026-10-10 00:43:00;10,3;23,0;;
 ```
 
 Koordinaten mit sechs Nachkommastellen. Ohne aktuelle Position (älter als
-`GPS_MAX_AGE`, oder kein GPS wie am PC) bleiben `lat` und `lon` leer.
+`GPS_MAX_AGE`, oder kein GPS wie am PC) bleiben Breite und Länge leer.
 
 **KML:** `feinstaub_25_line_<Zeit>.kml` und `feinstaub_10_line_<Zeit>.kml`,
 z. B. in Google Earth anzusehen. Jeder Punkt liegt so hoch wie sein
 Messwert, die Linie ist von grün (0) über gelb (25) nach rot (ab 50)
 gefärbt. Abgeschlossen werden die Dateien bei *Stop*, beim Moduswechsel
-und beim regulären Beenden der App. Wird QPython hart beendet, fehlt der
-Abschluss und Google Earth lehnt die Datei womöglich ab.
+und beim regulären Beenden der App. Wird QPython hart beendet (Akku leer,
+von Android geschlossen), fehlt der Abschluss zunächst; die App trägt ihn
+beim nächsten Start nach.
 
 <div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Dust-trajectory.jpg" width=50% alt="Feinstaubspur in Google Earth"></div>
 

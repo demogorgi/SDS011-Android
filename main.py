@@ -25,6 +25,7 @@ import bottle
 
 import config
 import gps
+import kml
 import sensor
 import transport
 import webapp
@@ -58,6 +59,8 @@ def main():
     write_log(1, u'Android: {0}, simulierte Hardware: {1}'.format(
         config.on_android(), config.use_fake_hardware()))
     write_log(1, u'Ausgabeverzeichnis: {0}'.format(to_text(config.OUTDIR)))
+    for name in kml.repair_unclosed_kml(config.OUTDIR):
+        write_log(1, u'Offene KML-Datei abgeschlossen: {0}'.format(to_text(name)))
 
     state = AppState()
 

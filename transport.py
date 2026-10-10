@@ -141,6 +141,7 @@ class AndroidBluetoothTransport(Transport):
         self._uuid = uuid or config.SSP_UUID
         self._droid = androidhelper.Android()
         self._conn_id = None
+        self._ready_unsupported = False
         # Alle androidhelper-Aufrufe laufen ueber dieselbe
         # RPC-Verbindung. Der Webserver bearbeitet jede Anfrage in einem
         # eigenen Thread, die Geraeteliste aus /devices/ und das Lesen
@@ -248,11 +249,32 @@ class AndroidBluetoothTransport(Transport):
         self._conn_id = None
 
     # -- Daten --------------------------------------------------------
+    def _data_ready(self):
+        """Liegen Daten bereit? Nur unter self._lock aufrufen.
+
+        bluetoothReadBinary wartet ohne Zeitlimit auf das erste Byte und
+        haelt dabei den RPC-Lock. Sendet der Sensor nicht (ohne Strom,
+        im Schlafmodus), kaemen disconnect() und damit das Beenden der
+        App nie an die Reihe. Kennt die QPython-Version
+        bluetoothReadReady nicht, wird wie gehabt direkt gelesen.
+        """
+        if self._ready_unsupported:
+            return True
+        answer = self._droid.bluetoothReadReady(self._conn_id)
+        if getattr(answer, 'error', None):
+            self._ready_unsupported = True
+            write_log(1, u'bluetoothReadReady nicht verfuegbar: {0}'.format(
+                to_text(answer.error)))
+            return True
+        return bool(answer.result)
+
     def read(self, max_bytes):
         if self._conn_id is None:
             raise TransportError(u'Nicht verbunden.')
         try:
             with self._lock:
+                if not self._data_ready():
+                    return b''
                 result = self._droid.bluetoothReadBinary(max_bytes, self._conn_id).result
         except Exception as exc:
             raise TransportError(u'Verbindung zum Sensor verloren: {0}'.format(to_text(exc)))

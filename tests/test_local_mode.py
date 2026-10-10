@@ -98,7 +98,8 @@ class LocalRecordingTest(unittest.TestCase):
     def test_csv_has_measurements(self):
         files = self._run_mode(local=True, place=u'Buero')
         with io.open(os.path.join(self.tmp, files[0]), encoding='utf-8') as fh:
-            rows = [r for r in fh.read().splitlines() if r]
+            header, rows = fh.readline().strip(), [r for r in fh.read().splitlines() if r]
+        self.assertEqual(header, u'Zeit;PM2.5;PM10;Breite;Laenge')
         self.assertTrue(rows)
         self.assertIn('12,3', rows[0])
         self.assertIn('45,6', rows[0])

@@ -121,15 +121,23 @@ def color_selection_rgb(value, pm):
 
   return color
 
-# Haengt eine Zeile "Zeit;PM2,5;PM10;Breite;Laenge" an die CSV-Datei.
-# Punkte werden zu Kommas, damit ein deutsches Excel die Zahlen erkennt.
-# Fehler gehen an den Aufrufer.
+# Erste Zeile jeder CSV-Datei. Ohne Umlaut: Excel liest UTF-8 ohne BOM
+# als ANSI.
+CSV_HEADER = u'Zeit;PM2.5;PM10;Breite;Laenge'
+
+
+# Haengt eine Zeile "Zeit;PM2,5;PM10;Breite;Laenge" an die CSV-Datei, bei
+# einer neuen Datei zuerst die Kopfzeile. Punkte werden zu Kommas, damit
+# ein deutsches Excel die Zahlen erkennt. Fehler gehen an den Aufrufer.
 def write_csv(pm_25, pm_10, value_lat, value_lon, value_time, value_fname):
   lat = value_lat
   lon = value_lon
   time = value_time
   fname = value_fname
+  new_file = not os.path.exists(fname) or os.path.getsize(fname) == 0
   with io.open(fname, 'a', encoding='utf-8', newline='') as file:
+    if new_file:
+      file.write(CSV_HEADER + u'\n')
     line = u"" + time + ";" + pm_25 + ";" + pm_10 + ";" + lat + ";" + lon
     line = line.replace(".", ",")
     file.write(line)
@@ -206,3 +214,43 @@ def close_kml(file_name):
   except Exception as e:
     write_log(0, u'KML-Fehler: {0}'.format(to_text(e)))
     return False
+
+_KML_TRAILER = b"  </Document>\n</kml>\n"
+
+
+# Schliesst KML-Dateien ab, die ein harter Abbruch (Android beendet
+# QPython, Akku leer) offen gelassen hat -- ohne Abschluss lehnt Google
+# Earth sie ab. Ein halb geschriebenes letztes Placemark wird
+# abgeschnitten. Nur beim Start aufrufen, solange nichts aufzeichnet.
+# Liefert die Namen der reparierten Dateien.
+def repair_unclosed_kml(directory):
+  repaired = []
+  try:
+    names = sorted(os.listdir(directory))
+  except OSError:
+    return repaired
+  for name in names:
+    if not name.endswith('.kml'):
+      continue
+    path = os.path.join(directory, name)
+    try:
+      with io.open(path, 'rb') as file:
+        data = file.read()
+      if data.rstrip().endswith(b'</kml>'):
+        continue
+      cut = data.rfind(b'</Placemark>\n')
+      if cut >= 0:
+        data = data[:cut + len(b'</Placemark>\n')]
+      else:
+        # Nur der Kopf: bis hinter <name> behalten, sonst unbrauchbar.
+        cut = data.find(b'</name>\n')
+        if cut < 0:
+          write_log(0, u'KML nicht reparierbar: {0}'.format(to_text(name)))
+          continue
+        data = data[:cut + len(b'</name>\n')]
+      with io.open(path, 'wb') as file:
+        file.write(data + _KML_TRAILER)
+      repaired.append(name)
+    except (IOError, OSError) as e:
+      write_log(0, u'KML-Reparatur fehlgeschlagen: {0}'.format(to_text(e)))
+  return repaired

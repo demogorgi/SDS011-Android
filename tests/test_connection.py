@@ -135,6 +135,38 @@ class SupervisorTest(unittest.TestCase):
         state.shutdown()
         reader.join(3)
 
+    def _slow_retry_reader(self):
+        """Erster Versuch scheitert, danach 30 s Wartezeit."""
+        fake = FakeTransport(interval=0.01, fail_connects=1)
+        state = AppState()
+        reader = SensorReader(state, fake, idle_wait=0.01,
+                              backoff=Backoff(start=30.0, maximum=60.0))
+        reader.start()
+        state.connection_wanted = True
+        self.assertTrue(self._wait_for(
+            lambda: state.connection()[0] == state_module.CONN_RETRYING))
+        return fake, state, reader
+
+    def test_disconnect_interrupts_the_retry_wait(self):
+        """Trennen und neu Verbinden wirkt sofort, nicht erst nach der
+        Wartezeit des letzten Fehlversuchs."""
+        fake, state, reader = self._slow_retry_reader()
+        state.connection_wanted = False
+        self.assertTrue(self._wait_for(
+            lambda: state.connection()[0] == state_module.CONN_DISCONNECTED, timeout=1.0))
+        state.connection_wanted = True
+        self.assertTrue(self._wait_for(lambda: state.is_connected(), timeout=1.0))
+        state.shutdown()
+        reader.join(3)
+
+    def test_other_device_interrupts_the_retry_wait(self):
+        fake, state, reader = self._slow_retry_reader()
+        state.set_device('11:22:33:44:55:66')
+        self.assertTrue(self._wait_for(lambda: state.is_connected(), timeout=1.0))
+        self.assertEqual(fake.connect_attempts, 2)
+        state.shutdown()
+        reader.join(3)
+
     def test_failure_is_visible_in_state(self):
         """Der Grund muss in der Oberflaeche ankommen, nicht nur im Log."""
         fake = FakeTransport(interval=0.01, fail_connects=50)

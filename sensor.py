@@ -14,6 +14,7 @@ from __future__ import absolute_import
 import threading
 
 import state as state_module
+from state import monotonic
 from connection import Backoff
 from logging_util import to_text, write_log
 from protocol import FrameDecoder
@@ -55,6 +56,25 @@ class SensorReader(threading.Thread):
         else:
             self._state.set_connection(state_module.CONN_DISCONNECTED, message)
 
+    def _wait_retry(self, delay, device_id):
+        """Wartet bis zum naechsten Verbindungsversuch, endet aber sofort,
+        wenn der Benutzer trennt, ein anderes Geraet waehlt oder die App
+        beendet wird. Sonst reagierte die Oberflaeche nach einigen
+        Fehlversuchen bis zu einer Minute lang nicht."""
+        deadline = monotonic() + delay
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return
+            if self._state.wait(min(self._idle_wait, remaining)):
+                return
+            if not self._state.connection_wanted:
+                return
+            if self._state.device()[0] != device_id:
+                # Neues Geraet: gleich versuchen, ohne alte Wartezeit.
+                self._backoff.reset()
+                return
+
     def _try_connect(self):
         """Ein Verbindungsversuch. Liefert True bei Erfolg.
 
@@ -70,7 +90,7 @@ class SensorReader(threading.Thread):
             write_log(1, u'Verbindung fehlgeschlagen ({0}), naechster Versuch in {1:.0f}s'
                       .format(to_text(exc), delay))
             self._state.set_connection(state_module.CONN_RETRYING, to_text(exc))
-            self._state.wait(delay)
+            self._wait_retry(delay, device_id)
             return False
         except Exception as exc:
             # Unerwartetes protokollieren und anzeigen, aber den Thread
@@ -79,7 +99,7 @@ class SensorReader(threading.Thread):
             write_log(0, u'Unerwarteter Fehler beim Verbinden: {0}'.format(to_text(exc)))
             self._state.set_connection(state_module.CONN_RETRYING,
                                        u'Unerwarteter Fehler: {0}'.format(to_text(exc)))
-            self._state.wait(delay)
+            self._wait_retry(delay, device_id)
             return False
 
         self._backoff.reset()

@@ -8,6 +8,7 @@ from __future__ import absolute_import
 
 import glob
 import io
+import json
 import os
 import re
 import shutil
@@ -24,11 +25,13 @@ from state import AppState, monotonic
 
 
 def _csv_rows(directory):
+    """Messzeilen aller CSV-Dateien, ohne Kopfzeilen."""
     rows = []
     for name in sorted(os.listdir(directory)):
         if name.endswith('.csv'):
             with io.open(os.path.join(directory, name), encoding='utf-8') as fh:
-                rows.extend(r for r in fh.read().splitlines() if r)
+                rows.extend(r for r in fh.read().splitlines()
+                            if r and r != kml.CSV_HEADER)
     return rows
 
 
@@ -154,8 +157,10 @@ class StaleMeasurementTest(RecorderTestCase):
         rec = Recorder(self.state, outdir=self.tmp, max_age=10)
         self.assertTrue(rec._push_step())
         self.assertEqual(len(self.posts), 1)
-        self.assertIn('"P1","value":"45.6"', self.posts[0])
-        self.assertIn('"P2","value":"12.3"', self.posts[0])
+        payload = json.loads(self.posts[0])
+        values = {v['value_type']: v['value'] for v in payload['sensordatavalues']}
+        self.assertEqual(values, {'P1': '45.6', 'P2': '12.3'})
+        self.assertEqual(payload['software_version'], 'SDS011-Android')
 
     def test_upload_errors_are_not_cleared_by_fresh_values(self):
         """Der Recorder raeumt nur seine eigenen Hinweise weg."""

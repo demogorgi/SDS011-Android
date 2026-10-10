@@ -88,9 +88,20 @@ class FileOutputTest(unittest.TestCase):
         kml.write_csv('12.3', '45.6', '51.4385', '6.7882',
                       '2026-01-01 10:00:00', path)
         with io.open(path, encoding='utf-8') as handle:
-            line = handle.read().strip()
+            lines = handle.read().splitlines()
         # Dezimaltrenner wird auf Komma umgestellt (deutsches Excel).
-        self.assertEqual(line, '2026-01-01 10:00:00;12,3;45,6;51,4385;6,7882')
+        self.assertEqual(lines, ['Zeit;PM2.5;PM10;Breite;Laenge',
+                                 '2026-01-01 10:00:00;12,3;45,6;51,4385;6,7882'])
+
+    def test_csv_header_only_once(self):
+        path = os.path.join(self.tmp, 'out.csv')
+        for _ in range(3):
+            kml.write_csv('1.0', '2.0', '', '', 't', path)
+        with io.open(path, encoding='utf-8') as handle:
+            lines = handle.read().splitlines()
+        self.assertEqual(lines[0], kml.CSV_HEADER)
+        self.assertEqual(len(lines), 4)
+        self.assertNotIn(kml.CSV_HEADER, lines[1:])
 
     def test_close_kml_on_missing_dir_does_not_raise(self):
         # Fehler beim Schreiben duerfen die Messung nicht abbrechen.
@@ -137,3 +148,61 @@ class CloseKmlEdgeCaseTest(unittest.TestCase):
         self.assertTrue(kml.close_kml(path))
         with io.open(path, 'rb') as handle:
             ElementTree.parse(handle)
+
+
+class RepairUnclosedTest(unittest.TestCase):
+    """Nach einem harten Abbruch fehlt der KML-Abschluss -- beim naechsten
+    Start wird er nachgetragen."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _trip(self, name, points):
+        path = os.path.join(self.tmp, name)
+        for i in range(points):
+            kml.write_kml_line('1%d.0' % i, '10.0', '6.78', '51.43', '51.4%d' % i,
+                               '6.7%d' % i, 'x', path, '25', '#FF00FF00')
+        return path
+
+    def _placemarks(self, path):
+        root = ElementTree.parse(path).getroot()
+        return root.findall('.//{http://earth.google.com/kml/2.1}Placemark')
+
+    def test_unclosed_file_becomes_valid(self):
+        path = self._trip('a.kml', 2)
+        self.assertEqual(kml.repair_unclosed_kml(self.tmp), ['a.kml'])
+        self.assertEqual(len(self._placemarks(path)), 2)
+
+    def test_half_written_placemark_is_cut_off(self):
+        path = self._trip('a.kml', 2)
+        with io.open(path, 'ab') as fh:
+            fh.write(b'   <Placemark>\n   <name>99.0</name>\n    <Poi')
+        kml.repair_unclosed_kml(self.tmp)
+        self.assertEqual(len(self._placemarks(path)), 2)
+
+    def test_header_only_becomes_an_empty_document(self):
+        path = os.path.join(self.tmp, 'a.kml')
+        kml._write_kml_header(path, '25')
+        kml.repair_unclosed_kml(self.tmp)
+        self.assertEqual(self._placemarks(path), [])
+
+    def test_closed_files_are_left_alone(self):
+        path = self._trip('a.kml', 1)
+        kml.close_kml(path)
+        with io.open(path, 'rb') as fh:
+            before = fh.read()
+        self.assertEqual(kml.repair_unclosed_kml(self.tmp), [])
+        with io.open(path, 'rb') as fh:
+            self.assertEqual(fh.read(), before)
+
+    def test_other_files_are_ignored(self):
+        csv = os.path.join(self.tmp, 'a.csv')
+        with io.open(csv, 'w', encoding='utf-8') as fh:
+            fh.write(u'x;1,0;2,0;;\n')
+        self.assertEqual(kml.repair_unclosed_kml(self.tmp), [])
+
+    def test_missing_directory_is_no_error(self):
+        self.assertEqual(kml.repair_unclosed_kml(os.path.join(self.tmp, 'fehlt')), [])

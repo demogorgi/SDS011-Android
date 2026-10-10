@@ -8,6 +8,7 @@ anderen Methoden antworten wie SL4A mit einem Fehler.
 
 from __future__ import absolute_import
 
+import base64
 import sys
 import types
 import unittest
@@ -32,6 +33,52 @@ class FakeDroid(object):
                 return Result(error='Unknown RPC: ' + name)
             return Result(answer(*args) if callable(answer) else answer)
         return call
+
+
+class AndroidReadTest(unittest.TestCase):
+    """Ein stummer Sensor darf den RPC-Lock nicht blockieren: sonst kommt
+    disconnect() -- und damit das Beenden der App -- nie dran."""
+
+    def setUp(self):
+        module = types.ModuleType('androidhelper')
+        module.Android = FakeDroid
+        self._saved = sys.modules.get('androidhelper')
+        sys.modules['androidhelper'] = module
+        self.reads = []
+
+        def read_binary(size, conn_id):
+            self.reads.append(size)
+            return base64.b64encode(b'\xaa\xc0').decode('ascii')
+
+        FakeDroid.answers = {'toggleBluetoothState': True,
+                             'bluetoothConnect': 'conn-1',
+                             'bluetoothStop': True,
+                             'bluetoothReadBinary': read_binary}
+        from transport import AndroidBluetoothTransport
+        self.transport = AndroidBluetoothTransport()
+        self.transport.connect('00:14:03:05:59:17')
+
+    def tearDown(self):
+        if self._saved is None:
+            sys.modules.pop('androidhelper', None)
+        else:
+            sys.modules['androidhelper'] = self._saved
+
+    def test_nothing_ready_means_no_blocking_read(self):
+        FakeDroid.answers['bluetoothReadReady'] = False
+        self.assertEqual(self.transport.read(64), b'')
+        self.assertEqual(self.reads, [])
+
+    def test_ready_data_is_read(self):
+        FakeDroid.answers['bluetoothReadReady'] = True
+        self.assertEqual(self.transport.read(64), b'\xaa\xc0')
+        self.assertEqual(self.reads, [64])
+
+    def test_without_read_ready_it_reads_directly(self):
+        """Aeltere QPython-Versionen kennen bluetoothReadReady nicht."""
+        self.assertEqual(self.transport.read(64), b'\xaa\xc0')
+        self.assertEqual(self.transport.read(64), b'\xaa\xc0')
+        self.assertEqual(self.reads, [64, 64])
 
 
 class AndroidDeviceListTest(unittest.TestCase):
