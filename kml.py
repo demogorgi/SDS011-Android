@@ -110,7 +110,7 @@ def color_selection_rgb(value, pm):
   elif pm == "pm_25":
     if 50 <= value:
       color = "#F00014"
-    elif 25 <= value <= 49:
+    elif 25 <= value < 50:
       color = "#FF7814"
     elif 0 <= value < 25:
       color = "#2bef0d"

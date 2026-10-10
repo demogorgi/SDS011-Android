@@ -40,6 +40,8 @@ class ColorSelectionTest(unittest.TestCase):
         self.assertEqual(kml.color_selection_rgb(24.9, 'pm_25'), '#2bef0d')
         self.assertEqual(kml.color_selection_rgb(25.0, 'pm_25'), '#FF7814')
         self.assertEqual(kml.color_selection_rgb(50.0, 'pm_25'), '#F00014')
+        # Der Sensor liefert Zehntel: 49,5 liegt noch im orangen Bereich.
+        self.assertEqual(kml.color_selection_rgb(49.5, 'pm_25'), '#FF7814')
 
 
 class FileOutputTest(unittest.TestCase):
