@@ -90,6 +90,7 @@ class NoRunNameCollisionTest(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         state = AppState()
         state.set_position(51.4385, 6.7882)
+        state.mark_gps_fix()
         state.set_measurement(12.3, 45.6)
         recorder = Recorder(state, outdir=tmp, kml_interval=0.01, tick=0.01)
         recorder.start()
@@ -187,6 +188,7 @@ class KmlClosedPromptlyTest(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         state = AppState()
         state.set_position(51.4385, 6.7882)
+        state.mark_gps_fix()
         state.set_measurement(10.0, 20.0)
         # Messintervall 1 s, Stop-Reaktion soll deutlich schneller sein.
         recorder = Recorder(state, outdir=tmp, kml_interval=1.0, tick=0.02)

@@ -47,6 +47,10 @@ def _query(name, default=u''):
     return value if value else default
 
 
+def _int_or_none(value):
+    return None if value is None else int(value)
+
+
 def create_app(state, on_shutdown=None, transport=None):
     app = Bottle()
 
@@ -117,9 +121,34 @@ def create_app(state, on_shutdown=None, transport=None):
         write_log(1, message)
         return {'value': message, 'refused': True}
 
+    def _requires_no_other_mode(what):
+        """Die Modi schliessen sich aus. Die Knoepfe sperren das schon,
+        aber nur nach dem Stand der letzten Abfrage -- eine veraltete
+        Seite oder ein zweites Geraet koennte sonst umschalten."""
+        active = [name for flag, name in ((state.recording, u'Messfahrt'),
+                                          (state.local, u'Lokale Messung'),
+                                          (state.stationary, u'Stationärer Modus'))
+                  if flag and name != what]
+        if not active:
+            return None
+        # Nur in der Antwort, nicht als bleibender Fehler: nach dem
+        # Beenden des anderen Modus waere der Hinweis sonst falsch.
+        message = u'%s nicht möglich: erst %s beenden.' % (what, active[0])
+        write_log(1, message)
+        return {'value': message, 'refused': True}
+
+    # Pruefen und Umschalten in einem Zug -- der Webserver bearbeitet
+    # Anfragen parallel, zwei Starts zugleich ergaeben sonst zwei Modi.
+    mode_lock = threading.Lock()
+
     @app.route('/start/')
     def start_measure():
-        refused = _requires_sensor(u'Aufzeichnung')
+        with mode_lock:
+            return _start_measure()
+
+    def _start_measure():
+        refused = (_requires_sensor(u'Messfahrt')
+                   or _requires_no_other_mode(u'Messfahrt'))
         if refused:
             return refused
         state.recording = True
@@ -139,10 +168,15 @@ def create_app(state, on_shutdown=None, transport=None):
 
     @app.route('/staton/')
     def start_stat():
+        with mode_lock:
+            return _start_stat()
+
+    def _start_stat():
         # Hier waere es besonders unangenehm: der stationaere Modus
         # laedt die Werte zu api.luftdaten hoch. Nullen aus einem nicht
         # verbundenen Sensor landeten in einem oeffentlichen Datensatz.
-        refused = _requires_sensor(u'Stationärer Modus')
+        refused = (_requires_sensor(u'Stationärer Modus')
+                   or _requires_no_other_mode(u'Stationärer Modus'))
         if refused:
             return refused
         state.recording = False
@@ -161,7 +195,12 @@ def create_app(state, on_shutdown=None, transport=None):
     # -- Lokale Messung: nur Datei, kein Upload ------------------------
     @app.route('/localon/')
     def start_local():
-        refused = _requires_sensor(u'Lokale Messung')
+        with mode_lock:
+            return _start_local()
+
+    def _start_local():
+        refused = (_requires_sensor(u'Lokale Messung')
+                   or _requires_no_other_mode(u'Lokale Messung'))
         if refused:
             return refused
         state.set_place(_query('place'))
@@ -192,8 +231,8 @@ def create_app(state, on_shutdown=None, transport=None):
             'lat': '%.5f' % float(snap['lat']),
             'lon': '%.5f' % float(snap['lon']),
             'gps_available': snap['gps_available'],
-            'gps_age': (None if snap['gps_fix_at'] is None
-                        else int(state.gps_age())),
+            'gps_age': _int_or_none(state.gps_age()),
+            'gps_max_age': config.GPS_MAX_AGE,
             'pm_10': '%6.1f' % snap['pm_10'],
             'pm_10_color': kml.color_selection_rgb(snap['pm_10'], 'pm_10'),
             'pm_25': '%6.1f' % snap['pm_25'],

@@ -110,7 +110,7 @@
           return;
         }
         var text = age < 120 ? age + ' s' : Math.floor(age / 60) + ' min';
-        if (age <= 15) {
+        if (age <= (data.gps_max_age || 15)) {
           box.text('GPS: aktuell (vor ' + text + ')');
         } else {
           box.text('GPS: kein Signal seit ' + text).addClass('warn');

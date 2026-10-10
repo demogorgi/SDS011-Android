@@ -62,7 +62,7 @@ def main():
 
     gps_reader, sensor_reader, recorder, sensor_transport = build_threads(state)
 
-    srv = StoppableWSGIRefServer(host=config.HTTP_HOST, port=config.http_port())
+    srv = StoppableWSGIRefServer(host=config.http_host(), port=config.http_port())
 
     # Der Shutdown wird aus zwei Richtungen gerufen: von der
     # /__exit-Route (in einem eigenen Thread) und aus dem finally unten.

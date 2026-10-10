@@ -9,6 +9,7 @@ from __future__ import absolute_import
 import glob
 import io
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -47,6 +48,7 @@ class RecorderTestCase(unittest.TestCase):
         self.state = AppState()
         self.state.set_measurement(12.3, 45.6)
         self.state.set_position(51.4385, 6.7882)
+        self.state.mark_gps_fix()
         self.recorder = None
         self._saved_post = recorder_module.post_json
         self.posts = []
@@ -108,6 +110,7 @@ class StaleMeasurementTest(RecorderTestCase):
         keine Zeile mit 0,0 entstehen."""
         self.state = AppState()
         self.state.set_position(51.4385, 6.7882)
+        self.state.mark_gps_fix()
         self.start()
         self.state.local = True
         self.assertTrue(_wait_for(lambda: u'Kein aktueller Messwert' in self.state.error()))
@@ -250,6 +253,147 @@ class WriteErrorTest(RecorderTestCase):
         self.assertTrue(_csv_rows(self.tmp))
         self.assertFalse(seen_empty_before_success)
         self.assertTrue(_wait_for(lambda: self.state.error() == u''))
+
+
+class GpsAgeTest(RecorderTestCase):
+    """Nur eine aktuelle Position gehoert in Spur und CSV."""
+
+    def _trip_step(self, **kwargs):
+        rec = Recorder(self.state, outdir=self.tmp, **kwargs)
+        rec._open_files(local=False)
+        rec._record_step()
+        return rec
+
+    def test_fresh_fix_is_drawn(self):
+        rec = self._trip_step(gps_max_age=15)
+        self.assertTrue(os.path.exists(rec._fname_25))
+        self.assertIn(u'51,438500', _csv_rows(self.tmp)[0])
+
+    def test_stale_fix_is_neither_drawn_nor_written(self):
+        """Die letzte bekannte Position kann von gestern sein."""
+        self.state.mark_gps_fix(monotonic() - 100)
+        rec = self._trip_step(gps_max_age=15)
+        self.assertFalse(os.path.exists(rec._fname_25))
+        self.assertIsNone(rec._lat_old)
+        row = _csv_rows(self.tmp)[0]
+        self.assertTrue(row.endswith(u';;'), row)
+        self.assertNotIn(u'51,4385', row)
+
+    def test_track_restarts_after_gps_gap(self):
+        """Fix bei A, dann Stille, dann Fix bei B: keine gerade Linie
+        von A nach B ueber die Luecke."""
+        rec = Recorder(self.state, outdir=self.tmp, gps_max_age=15)
+        rec._open_files(local=False)
+        rec._record_step()                                  # A
+        self.state.mark_gps_fix(monotonic() - 100)          # Stille
+        rec._record_step()
+        self.state.set_position(51.5, 6.9)                  # B
+        self.state.mark_gps_fix()
+        rec._record_step()
+        with io.open(rec._fname_25, encoding='utf-8') as fh:
+            kml_text = fh.read()
+        segments = []
+        for block in re.findall(r'<LineString>.*?<coordinates>(.*?)</coordinates>',
+                                kml_text, re.S):
+            points = [p.split(',')[:2] for p in block.split()]
+            segments.append(frozenset(tuple(p) for p in points))
+        a = ('6.788200', '51.438500')
+        b = ('6.900000', '51.500000')
+        self.assertTrue(segments)
+        self.assertNotIn(frozenset([a, b]), segments)
+
+    def test_clock_set_back_means_no_fix(self):
+        self.state.mark_gps_fix(monotonic() + 100)
+        self.assertIsNone(self.state.gps_age())
+
+    def test_no_fix_ever_leaves_coordinates_empty(self):
+        """Am PC gibt es kein GPS -- dort stand bisher 0,000000."""
+        self.state = AppState()
+        self.state.set_measurement(1.0, 2.0)
+        self._trip_step()
+        self.assertTrue(_csv_rows(self.tmp)[0].endswith(u';;'))
+
+
+class TlsFallbackTest(RecorderTestCase):
+    """Altes Android: ssl vorhanden, aber Zertifikate veraltet."""
+
+    def test_falls_back_to_http_and_stays_there(self):
+        urls = []
+
+        def picky(url, body, headers, timeout=30):
+            urls.append(url)
+            if url.startswith('https://'):
+                raise IOError('[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed')
+            return 201
+        recorder_module.post_json = picky
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._push_step()
+        rec._push_step()
+        self.assertTrue(urls[0].startswith('https://'))
+        self.assertTrue(urls[1].startswith('http://'))
+        # Der zweite Upload versucht HTTPS gar nicht erst.
+        self.assertEqual(len(urls), 3)
+        self.assertTrue(urls[2].startswith('http://'))
+        self.assertEqual(self.state.error(), u'')
+
+    def test_other_errors_do_not_switch_to_http(self):
+        urls = []
+
+        def offline(url, body, headers, timeout=30):
+            urls.append(url)
+            raise IOError('Network is unreachable')
+        recorder_module.post_json = offline
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._push_step()
+        self.assertEqual(len(urls), 1)
+        self.assertIn(u'Network is unreachable', self.state.error())
+
+    def test_tls_error_detection(self):
+        import ssl
+        try:
+            from urllib.error import URLError
+        except ImportError:
+            from urllib2 import URLError
+        tls = recorder_module.is_tls_error
+        # Dauerhaft: veraltete Zertifikate, Protokoll zu alt.
+        self.assertTrue(tls(URLError(ssl.SSLError(
+            1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed'))))
+        self.assertTrue(tls(IOError('<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]>')))
+        self.assertTrue(tls(ssl.SSLError(1, '[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol')))
+        # Voruebergehend: langsames oder abreissendes Mobilnetz. Der Text
+        # enthaelt '_ssl.c', das darf nicht auf HTTP umschalten.
+        self.assertFalse(tls(URLError(ssl.SSLError(
+            '_ssl.c:1059: The handshake operation timed out'))))
+        self.assertFalse(tls(ssl.SSLError(8, 'EOF occurred in violation of protocol')))
+        self.assertFalse(tls(IOError('timed out')))
+        self.assertFalse(tls(IOError('Network is unreachable')))
+
+    def test_handshake_timeout_keeps_https(self):
+        urls = []
+
+        def slow(url, body, headers, timeout=30):
+            urls.append(url)
+            raise IOError('_ssl.c:1059: The handshake operation timed out')
+        recorder_module.post_json = slow
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._push_step()
+        rec._push_step()
+        self.assertEqual(len(urls), 2)
+        self.assertTrue(all(u.startswith('https://') for u in urls), urls)
+
+
+class HostTest(unittest.TestCase):
+
+    def test_only_reachable_from_the_device_by_default(self):
+        saved = os.environ.pop('SDS011_HOST', None)
+        try:
+            self.assertEqual(config.http_host(), '127.0.0.1')
+            os.environ['SDS011_HOST'] = '0.0.0.0'
+            self.assertEqual(config.http_host(), '0.0.0.0')
+        finally:
+            os.environ.pop('SDS011_HOST', None)
+            if saved is not None:
+                os.environ['SDS011_HOST'] = saved
 
 
 class UnicodeFormatTest(unittest.TestCase):

@@ -62,6 +62,7 @@ class LocalRecordingTest(unittest.TestCase):
         self.state = AppState()
         self.state.set_measurement(12.3, 45.6)
         self.state.set_position(51.4385, 6.7882)
+        self.state.mark_gps_fix()
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

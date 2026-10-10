@@ -36,6 +36,30 @@ def _have_ssl():
         return False
 
 
+# Fehlertexte, an denen HTTPS dauerhaft scheitert: veraltete Zertifikate
+# oder ein Protokoll, das die alte ssl-Bibliothek nicht kann.
+_TLS_MARKERS = ('CERTIFICATE', 'UNSUPPORTED PROTOCOL', 'PROTOCOL VERSION',
+                'WRONG VERSION NUMBER', 'HANDSHAKE FAILURE', 'UNKNOWN PROTOCOL',
+                'TLSV1_ALERT', 'SSLV3_ALERT')
+# Voruebergehend -- schlechtes Mobilnetz, kein Grund fuer HTTP.
+_TRANSIENT_MARKERS = ('TIMED OUT', 'TIMEOUT', 'EOF OCCURRED')
+
+
+def is_tls_error(exc):
+    """True, wenn ein Upload dauerhaft an TLS gescheitert ist.
+
+    Altes Android hat oft ein ssl-Modul, aber veraltete Zertifikate --
+    dann scheitert jeder HTTPS-Upload, obwohl HTTP ginge. Ein Timeout
+    im Handshake zaehlt nicht: der Fehlertext enthaelt zwar '_ssl.c',
+    ist aber nur ein langsames Netz.
+    """
+    reason = getattr(exc, 'reason', None)
+    text = (to_text(exc) + u' ' + to_text(reason or u'')).upper()
+    if any(marker in text for marker in _TRANSIENT_MARKERS):
+        return False
+    return any(marker in text for marker in _TLS_MARKERS)
+
+
 def upload_url(url, have_ssl=None):
     """HTTPS, wenn Python es kann, sonst HTTP.
 
@@ -134,7 +158,7 @@ class Recorder(threading.Thread):
     TICK = 0.5
 
     def __init__(self, state, outdir=None, kml_interval=None,
-                 stat_interval=None, tick=None, max_age=None):
+                 stat_interval=None, tick=None, max_age=None, gps_max_age=None):
         threading.Thread.__init__(self)
         self.daemon = True
         self._state = state
@@ -145,6 +169,9 @@ class Recorder(threading.Thread):
         # Wie schnell ein Tastendruck bemerkt wird.
         self._tick = self.TICK if tick is None else tick
         self._max_age = config.MAX_MEASUREMENT_AGE if max_age is None else max_age
+        self._gps_max_age = config.GPS_MAX_AGE if gps_max_age is None else gps_max_age
+        # Nach einem TLS-Fehler bleibt der Upload bei HTTP.
+        self._plain_http = False
         self._files_open = False
         self._files_mode = None
         self._local_run = False
@@ -246,10 +273,18 @@ class Recorder(threading.Thread):
             return
         pm_25, pm_10 = values
         lat, lon, utc = self._state.position()
+        # Nur eine aktuelle Position zaehlt. Die letzte bekannte kann
+        # von gestern sein, und ohne Signal bleibt sie einfach stehen.
+        gps_age = self._state.gps_age()
+        has_fix = (gps_age is not None and gps_age <= self._gps_max_age
+                   and -90 <= lat <= 90 and lat != 0)
+        if not has_fix:
+            self._lat_old = None
+            self._lon_old = None
 
-        # Nur mit gueltigem Fix eine Linie zeichnen -- und nicht bei
-        # der lokalen Messung, die gar keine Spur erzeugt.
-        if not self._local_run and -90 <= lat <= 90 and lat != 0:
+        # Linie nur mit Fix -- und nicht bei der lokalen Messung, die gar
+        # keine Spur erzeugt.
+        if not self._local_run and has_fix:
             if self._lat_old is None:
                 self._lat_old = lat
                 self._lon_old = lon
@@ -273,7 +308,8 @@ class Recorder(threading.Thread):
             self._pm_old_10 = pm_10
 
         kml.write_csv(
-            str(pm_25), str(pm_10), _coord(lat), _coord(lon),
+            str(pm_25), str(pm_10),
+            _coord(lat) if has_fix else '', _coord(lon) if has_fix else '',
             datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             self._fname_csv)
 
@@ -304,7 +340,7 @@ class Recorder(threading.Thread):
                 '[{"value_type":"P1","value":"%s"},'
                 '{"value_type":"P2","value":"%s"}]}' % (pm_10, pm_25))
         try:
-            status_code = post_json(upload_url(config.LUFTDATEN_URL), data, headers)
+            status_code = self._send(data, headers)
         except Exception as exc:
             # Vorher stuerzte der Thread hier ohne Netz komplett ab.
             self._state.report_error(u'Fehler bei Datenübertragung: {0}'.format(to_text(exc)))
@@ -324,6 +360,21 @@ class Recorder(threading.Thread):
                 u'Fehler bei Datenübertragung, Status Code {0}.'.format(status_code))
             write_log(0, u'Upload Status Code {0}'.format(status_code))
         return True
+
+    def _send(self, data, headers):
+        """POST zu luftdaten; scheitert HTTPS an TLS, einmal ueber HTTP
+        und danach dabei bleiben."""
+        url = upload_url(config.LUFTDATEN_URL,
+                         have_ssl=False if self._plain_http else None)
+        try:
+            return post_json(url, data, headers)
+        except Exception as exc:
+            if not url.startswith('https://') or not is_tls_error(exc):
+                raise
+            write_log(0, u'HTTPS fehlgeschlagen ({0}), Upload ab jetzt ueber HTTP'
+                      .format(to_text(exc)))
+            self._plain_http = True
+            return post_json(upload_url(url, have_ssl=False), data, headers)
 
     def _mode(self):
         if self._state.recording:

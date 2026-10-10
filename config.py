@@ -25,6 +25,10 @@ GPS_INT = 5
 # Wartezeit bis zu GPS_RESTART_MAX.
 GPS_RESTART_AFTER = 60
 GPS_RESTART_MAX = 600
+# Aelter darf die letzte neue GPS-Position nicht sein, um in Spur und
+# CSV zu landen. Sonst bleiben die Koordinaten leer und die Spur beginnt
+# danach neu -- statt einer geraden Linie von der alten Position.
+GPS_MAX_AGE = 15
 # Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus.
 STAT_INT = 240
 # Aelter darf ein Messwert nicht sein, um aufgezeichnet oder
@@ -43,7 +47,10 @@ SDS011_BLUETOOTH_DEVICE_ID = '00:14:03:05:59:17'
 XSENSOR = 'raspi-00000000a5c85ba8'
 LUFTDATEN_URL = 'https://api.luftdaten.info/v1/push-sensor-data/'
 
-HTTP_HOST = '0.0.0.0'
+# Nur auf dem Geraet selbst erreichbar. Mit 0.0.0.0 koennte jeder im
+# selben WLAN die GPS-Position lesen, die App beenden oder den
+# oeffentlichen Upload starten. Per SDS011_HOST ueberschreibbar.
+HTTP_HOST = '127.0.0.1'
 HTTP_PORT = 8080
 
 # Wohin Messdateien und Log unter Android geschrieben werden. Download/
@@ -72,6 +79,11 @@ def ensure_outdir():
             if not os.path.isdir(OUTDIR):
                 raise
     return OUTDIR
+
+
+def http_host():
+    """Adresse des Webservers, per SDS011_HOST ueberschreibbar."""
+    return os.environ.get('SDS011_HOST') or HTTP_HOST
 
 
 def http_port():

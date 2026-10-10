@@ -98,11 +98,47 @@ class RouteTest(unittest.TestCase):
         call(self.app, '/statoff/')
         self.assertFalse(self.state.stationary)
 
-    def test_start_clears_stationary(self):
+    def test_start_refused_while_stationary(self):
+        """Die Modi schliessen sich aus -- auch serverseitig, damit eine
+        veraltete Seite nicht einfach umschaltet."""
         call(self.app, '/staton/')
-        call(self.app, '/start/')
+        status, payload = call(self.app, '/start/')
+        self.assertTrue(payload.get('refused'))
+        self.assertIn(u'erst Stationärer Modus beenden', payload['value'])
+        self.assertFalse(self.state.recording)
+        self.assertTrue(self.state.stationary)
+
+        call(self.app, '/statoff/')
+        status, payload = call(self.app, '/start/')
+        self.assertFalse(payload.get('refused'))
         self.assertTrue(self.state.recording)
-        self.assertFalse(self.state.stationary)
+
+    def test_every_other_mode_blocks_every_start(self):
+        """Alle sechs Kombinationen: abgelehnt, Flags und Ort bleiben."""
+        starts = {'recording': '/start/', 'local': '/localon/?place=Neu',
+                  'stationary': '/staton/'}
+        for active in starts:
+            for flag, route in starts.items():
+                if flag == active:
+                    continue
+                state = AppState()
+                state.set_connection(u'verbunden')
+                state.set_place(u'Alt')
+                setattr(state, active, True)
+                app = webapp.create_app(state)
+                status, payload = call(app, route)
+                self.assertTrue(payload.get('refused'), (active, route))
+                self.assertEqual(
+                    [k for k in starts if getattr(state, k)], [active], (active, route))
+                self.assertEqual(state.place(), u'Alt', (active, route))
+                # Nur in der Antwort -- kein bleibender roter Hinweis.
+                self.assertEqual(state.error(), u'', (active, route))
+
+    def test_starting_the_same_mode_again_is_fine(self):
+        call(self.app, '/start/')
+        status, payload = call(self.app, '/start/')
+        self.assertFalse(payload.get('refused'))
+        self.assertTrue(self.state.recording)
 
     def test_status_contract(self):
         """Die Schluessel muessen exakt die sein, die index.html liest."""
@@ -114,7 +150,8 @@ class RouteTest(unittest.TestCase):
                     'pm_25', 'pm_25_color', 'error_msg',
                     'recording', 'stationary', 'connection',
                     'connection_error', 'connection_wanted',
-                    'device', 'device_name'):
+                    'device', 'device_name', 'gps_available', 'gps_age',
+                    'gps_max_age'):
             self.assertIn(key, payload)
         self.assertEqual(payload['lat'], '51.43850')
         self.assertEqual(payload['pm_10'].strip(), '45.6')
@@ -136,6 +173,7 @@ class RouteTest(unittest.TestCase):
         self.assertTrue(payload['recording'])
         self.assertFalse(payload['stationary'])
 
+        call(self.app, '/stopp/')
         call(self.app, '/staton/')
         status, payload = call(self.app, '/status/')
         self.assertFalse(payload['recording'])
@@ -244,17 +282,24 @@ class LocalModeRouteTest(unittest.TestCase):
         self.assertFalse(self.state.local)
 
     def test_modes_are_mutually_exclusive(self):
+        def modes():
+            return (self.state.recording, self.state.local, self.state.stationary)
+
         call(self.app, '/localon/?place=Halle')
-        self.assertEqual((self.state.recording, self.state.local,
-                          self.state.stationary), (False, True, False))
+        self.assertEqual(modes(), (False, True, False))
 
+        # Ohne Stop wird nicht umgeschaltet.
+        for route in ('/staton/', '/start/'):
+            status, payload = call(self.app, route)
+            self.assertTrue(payload.get('refused'), route)
+            self.assertEqual(modes(), (False, True, False))
+
+        call(self.app, '/localoff/')
         call(self.app, '/staton/')
-        self.assertEqual((self.state.recording, self.state.local,
-                          self.state.stationary), (False, False, True))
-
+        self.assertEqual(modes(), (False, False, True))
+        call(self.app, '/statoff/')
         call(self.app, '/start/')
-        self.assertEqual((self.state.recording, self.state.local,
-                          self.state.stationary), (True, False, False))
+        self.assertEqual(modes(), (True, False, False))
 
     def test_localon_requires_a_sensor(self):
         state = AppState()

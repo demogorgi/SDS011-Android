@@ -30,7 +30,8 @@ However optiprimes code is not working under python3.x. The urge to get the setu
     use under "Weitere Informationen"; ``ANDROID_OUTDIR`` in ``config.py``
     changes it.
     * The csv file's format is ``timestamp;pm2.5;pm_10;lat;lon``, decimal comma,
-      coordinates with six decimals
+      coordinates with six decimals. Without a current GPS fix (older than
+      ``GPS_MAX_AGE``, or no GPS at all, e.g. on a PC) lat and lon stay empty
       (earlier revisions of this README named the two measurement columns in the
       wrong order -- the file has always started with pm2.5)
     * The kml-files contain a pm_10 and pm_2.5 "trajectory" that can be viewed in GoogleEarth (make sure to press the "Stop"-Button in the WebApp to get vaild kml files)
@@ -60,7 +61,10 @@ pip install -r requirements-dev.txt
 SDS011_FAKE=1 python main.py        # Windows: set SDS011_FAKE=1
 ```
 
-Danach `http://localhost:8080` im Browser oeffnen. Der simulierte Sensor
+Danach `http://localhost:8080` im Browser oeffnen. Der Webserver ist nur
+vom eigenen Geraet aus erreichbar (`127.0.0.1`); wer bewusst aus dem WLAN
+zugreifen will, setzt `SDS011_HOST=0.0.0.0` -- dann kann aber auch jeder
+andere im WLAN die Position lesen und die App steuern. Der simulierte Sensor
 liefert plausible Messwerte, das simulierte GPS faehrt eine kleine Runde.
 Ohne die Variable wird echte Hardware benutzt -- auf dem Geraet wie am
 PC (siehe naechster Abschnitt).

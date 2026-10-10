@@ -130,12 +130,14 @@ class AppState(object):
             self._gps_fix_at = monotonic() if at is None else at
 
     def gps_age(self, now=None):
-        """Sekunden seit der letzten neuen Position, None ohne Fix."""
+        """Sekunden seit der letzten neuen Position, None ohne Fix --
+        auch nach einer zurueckgestellten Uhr (siehe measurement_age)."""
         with self._lock:
             fix_at = self._gps_fix_at
         if fix_at is None:
             return None
-        return max(0.0, (monotonic() if now is None else now) - fix_at)
+        age = (monotonic() if now is None else now) - fix_at
+        return age if age >= 0 else None
 
     # -- Anzeige ------------------------------------------------------
     def set_status(self, text):
