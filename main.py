@@ -1,16 +1,19 @@
 #qpy:webapp:Feinstaubmessung
 #qpy://localhost:8080/
 # -*- coding: utf-8 -*-
-"""Mobile Feinstaubmessung mit SDS011 unter QPython.
+"""Mobile Feinstaubmessung mit SDS011 -- Startpunkt der App.
 
-Siehe: https://edu.qpython.org/qpython-webapp/your-first-webapp.html
+Startet GPS-Leser, Sensor-Leser und Recorder als Threads, dann den
+Webserver mit der Oberflaeche, und faehrt beim Beenden alles geordnet
+herunter. Messen, Orten und Aufzeichnen stecken in sensor, gps und
+recorder; die Einstellungen stehen in config.py.
 
-Skript basiert auf den Quellen
-  https://github.com/optiprime
-  https://www.byteyourlife.com/
+Die #qpy-Zeilen oben machen das Skript zur QPython-Webapp: QPython
+oeffnet nach dem Start die angegebene Adresse, siehe
+https://edu.qpython.org/qpython-webapp/your-first-webapp.html
 
-Dieses Modul verdrahtet nur noch die Bausteine. Die Konfiguration liegt
-in config.py.
+Basiert auf den Quellen von https://github.com/optiprime und
+https://www.byteyourlife.com/
 """
 
 from __future__ import absolute_import
@@ -32,8 +35,11 @@ from state import AppState
 
 
 def build_threads(state):
-    """Legt die drei Arbeits-Threads an und liefert den Transport mit,
-    damit die Weboberflaeche die Geraeteliste abfragen kann."""
+    """Legt GPS-Leser, Sensor-Leser und Recorder an, ohne sie zu starten.
+
+    Liefert zusaetzlich den Transport zum Sensor, ueber den die
+    Oberflaeche die Liste der Bluetooth-Geraete abfragt.
+    """
     gps_source = gps.create_gps(state)
     gps_reader = gps.GpsReader(state, gps_source)
 
@@ -45,6 +51,7 @@ def build_threads(state):
 
 
 def main():
+    """Startet die App und kehrt erst zurueck, wenn sie beendet ist."""
     config.ensure_outdir()
     rotate_logfile()
     write_log(1, u'Start, Python {0}'.format(sys.version.split()[0]))
@@ -58,16 +65,19 @@ def main():
     if config.on_android():
         import androidhelper
         droid = androidhelper.Android()
+        # Haelt die CPU wach, wenn der Bildschirm ausgeht -- sonst
+        # stocken Messung und GPS, sobald das Handy in der Tasche ist.
         droid.wakeLockAcquirePartial()
 
     gps_reader, sensor_reader, recorder, sensor_transport = build_threads(state)
 
     srv = StoppableWSGIRefServer(host=config.http_host(), port=config.http_port())
 
-    # Der Shutdown wird aus zwei Richtungen gerufen: von der
-    # /__exit-Route (in einem eigenen Thread) und aus dem finally unten.
-    # Der Lock sorgt dafuer, dass der zweite Aufrufer wartet, statt
-    # den ersten mittendrin abzuschneiden.
+    # Beim Beenden ueber /__exit laeuft shutdown() zweimal: zuerst in
+    # dem Thread, den die Route startet, dann aus dem finally unten,
+    # sobald bottle.run() zurueckkehrt. Der Lock laesst den zweiten
+    # Aufrufer warten, bis der erste fertig ist, statt ihn mittendrin
+    # abzuschneiden; danach kehrt er sofort zurueck.
     shutdown_lock = threading.Lock()
     shutdown_state = {'done': False}
 

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Schreibt KML- und CSV-Dateien. Haengt nur an logging_util,
-nicht an main -- fruehere Zeile 'from main import write_log' hat
-main.py ein zweites Mal geladen, mit eigenem Satz Globals.
+"""Schreibt die Ausgabedateien einer Messung: KML-Spur und CSV-Tabelle.
+
+Wird vom Recorder benutzt; webapp holt sich nur die Ampelfarben fuer die
+Anzeige. Importiert nichts aus main.py: main.py laeuft als __main__, ein
+'import main' wuerde es ein zweites Mal laden, mit eigenem Satz Globals.
 """
 
 from __future__ import absolute_import
@@ -12,7 +14,8 @@ import os
 
 from logging_util import to_text, write_log
 
-# Hier wird die Farbe fuer die Linie festgelegt.
+# KML-Linienfarbe zum Messwert: Verlauf in 35 Stufen von Gruen (0) ueber
+# Gelb (25) nach Rot (ab 50). KML erwartet aabbggrr, nicht rrggbb.
 def color_selection(value):
   if 50 <= value:
     color = "#C80000FF"
@@ -90,33 +93,25 @@ def color_selection(value):
 
   return color
 
-# und hier fuer die Darstellung im Frontend 
-# Grenzwerte
-# Zum Schutz der menschlichen Gesundheit gelten seit dem 1. Januar 2005 europaweit Grenzwerte fuer die Feinstaubfraktion PM10.
-# Der Tagesgrenzwert betraegt 50 mikrogramm/m3 und darf nicht oefter als 35mal im Jahr ueberschritten werden. Der zulaessige Jahresmittelwert betraegt 40 mikrogramm/m3.
-# Fuer die noch kleineren Partikel PM2,5 gilt seit 2008 europaweit ein Zielwert von 25 mikrogramm/m3 im Jahresmittel, der bereits seit dem 1. Januar 2010 eingehalten werden soll.
-# Seit 1. Januar 2015 ist dieser Wert verbindlich einzuhalten.
+# Ampelfarbe (rrggbb) fuer die Weboberflaeche, pm ist 'pm_10' oder 'pm_25'.
+# Orange ab dem EU-Jahresmittelgrenzwert (PM10: 40, PM2,5: 25 ug/m3),
+# Rot ab 50 ug/m3, dem EU-Tagesgrenzwert fuer PM10.
+# Unbekanntes pm oder negativer Wert ergibt Weiss.
 def color_selection_rgb(value, pm):
   if pm == "pm_10":
-    # red   
     if 50 <= value:
       color = "#F00014"
-    # orange
     elif 40 <= value < 50:
       color = "#FF7814"
-    # green
     elif 0 <= value < 40:
       color = "#2bef0d"
     else:
       color = "#FFFFFF"
   elif pm == "pm_25":
-    # red
     if 50 <= value:
       color = "#F00014"
-    # orange
     elif 25 <= value <= 49:
       color = "#FF7814"
-    # green
     elif 0 <= value < 25:
       color = "#2bef0d"
     else:
@@ -126,8 +121,9 @@ def color_selection_rgb(value, pm):
 
   return color
 
-# Diese Funktion schreibt die CSV Datei mit den Feinstaubwerten und
-# den GPS Koordinaten.
+# Haengt eine Zeile "Zeit;PM2,5;PM10;Breite;Laenge" an die CSV-Datei.
+# Punkte werden zu Kommas, damit ein deutsches Excel die Zahlen erkennt.
+# Fehler gehen an den Aufrufer.
 def write_csv(pm_25, pm_10, value_lat, value_lon, value_time, value_fname):
   lat = value_lat
   lon = value_lon
@@ -139,11 +135,10 @@ def write_csv(pm_25, pm_10, value_lat, value_lon, value_time, value_fname):
     file.write(line)
     file.write(u'\n')
 
-# Diese Funktion schreibt die KML Datei mit der zurückgelegten Wegstrecke.
+# Legt den Kopf einer neuen KML-Datei an; type ('25' oder '10') geht in
+# den Namen des Dokuments ein. Aufbau von KML:
+# https://developers.google.com/kml/documentation/kml_tut
 def _write_kml_header(fname, type):
-  # Hier ist eine sehr gute Dokumentation zu finden ueber den Aufbau
-  # von KML Dateien.
-  # https://developers.google.com/kml/documentation/kml_tut
   with io.open(fname, 'a', encoding='utf-8', newline='') as file:
     file.write(u"<?xml version='1.0' encoding='UTF-8'?>\n")
     file.write(u"<kml xmlns='http://earth.google.com/kml/2.1'>\n")
@@ -152,7 +147,14 @@ def _write_kml_header(fname, type):
                + datetime.datetime.now().strftime("%Y%m%d") + ".kml </name>\n")
     file.write(u"\n")
 
-# Diese Funktion schreibt die KML Datei mit der zurueckgelegten Wegstrecke.
+# Haengt ein Placemark an die KML-Spur: Punkt an der aktuellen Position
+# und ein Liniensegment von der vorigen Position hierher. Das Segment
+# liegt so viele Meter ueber Grund wie der Messwert, die Spur steigt in
+# Google Earth also mit der Belastung. Alle Werte kommen als Text.
+# Achtung Reihenfolge: alt kommt als (lon, lat), neu als (lat, lon).
+# value_time wird nicht verwendet.
+# Existiert die Datei noch nicht, wird zuerst der Kopf geschrieben.
+# Liefert True oder bei einem Schreibfehler False (mit Logeintrag).
 def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_lat, value_lon, value_time, value_fname, type, value_color):
   pm = value_pm
   pm_old = value_pm_old
@@ -163,8 +165,6 @@ def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_l
   fname = value_fname
   color = value_color
   try:
-    # Frueher legte der erste Aufruf nur den Kopf an und verwarf den
-    # Messwert. Jetzt folgt das Placemark direkt danach.
     if not os.path.exists(fname):
       _write_kml_header(fname, type)
     with io.open(fname, 'a', encoding='utf-8', newline='') as file:
@@ -190,12 +190,11 @@ def write_kml_line(value_pm, value_pm_old, value_lon_old, value_lat_old, value_l
     write_log(0, u'KML-Fehler: {0}'.format(to_text(e)))
     return False
 
-# Diese Funktion schliesst das KML File ab.
+# Schliesst die KML-Datei ab. Liefert True, sonst False (mit Logeintrag),
+# auch wenn die Datei fehlt.
 def close_kml(file_name):
-  # Wurde zwischen Start und Stopp kein Messwert geschrieben, existiert
-  # die Datei nicht. Frueher legte close_kml() sie dann an und schrieb
-  # nur die schliessenden Tags hinein -- das Ergebnis war kein gueltiges
-  # XML und in Google Earth unbrauchbar.
+  # Ohne geschriebenen Messwert gibt es keine Datei. Dann nichts anlegen:
+  # nur die schliessenden Tags waeren kein gueltiges XML.
   if not os.path.exists(file_name):
     write_log(1, u'close_kml: {0} existiert nicht, nichts abzuschliessen'.format(to_text(file_name)))
     return False

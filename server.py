@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Ein WSGI-Server, der sich von aussen beenden laesst.
+"""bottle-Server-Adapter fuer main.py: wsgiref, mehrfaedrig, per stop() beendbar.
 
-bottle.WSGIRefServer legt zwar self.srv an, bietet aber keine Methode
-zum Stoppen -- deshalb ein eigener Adapter. Der haengt nur an
-wsgiref/socketserver aus der Standardbibliothek und funktioniert
-dadurch mit jeder bottle-Version, die auf dem Geraet installiert ist.
+bottles WSGIRefServer bietet keine Methode zum Stoppen; main.py braucht
+aber eine, um den Server beim Beenden (/__exit, Strg+C) anzuhalten.
+Der Adapter nutzt nur wsgiref/socketserver aus der Standardbibliothek
+und laeuft damit mit jeder bottle-Version auf dem Geraet. HTTPS-Versuche
+weist er mit einem Hinweis im Log ab.
 """
 
 from __future__ import absolute_import
@@ -22,13 +23,12 @@ from bottle import ServerAdapter
 
 from logging_util import to_text, write_log
 
-# Erstes Byte eines TLS-ClientHello. Ein Browser, der https://
-# zu dieser Anwendung spricht, schickt genau das.
+# Erstes Byte eines TLS-Handshakes (Record-Typ 22).
 _TLS_HANDSHAKE = b'\x16'
 
 
 class StoppableWSGIRefServer(ServerAdapter):
-    """Wie bottles WSGIRefServer, aber mit stop().
+    """Wie bottles WSGIRefServer, aber mehrfaedrig und mit stop().
 
     serve_forever(poll_interval) schaut regelmaessig nach, ob shutdown()
     gerufen wurde. shutdown() muss aus einem ANDEREN Thread kommen als
@@ -61,8 +61,9 @@ class StoppableWSGIRefServer(ServerAdapter):
             nicht blockiert.
             """
             daemon_threads = True
-            # Ab Python 3.7 wartet server_close() sonst auf alle
-            # Request-Threads; mit daemon_threads wollen wir das nicht.
+            # Sonst wartet server_close() (ab Python 3.7) auf die
+            # Request-Threads, und eine haengende Anfrage haelt das
+            # Beenden auf.
             block_on_close = False
 
         quiet = self.quiet
@@ -85,13 +86,12 @@ class StoppableWSGIRefServer(ServerAdapter):
                     return WSGIRequestHandler.log_request(self, *args, **kwargs)
 
             def handle(self):
-                # Ein TLS-Handshake beginnt mit 0x16. Genau den schickt
-                # ein Browser, der https:// zu dieser Anwendung spricht --
-                # etwa weil Chrome die Adresse selbsttaetig hochstuft.
-                # Ohne diesen Zweig wartet der Server auf eine
-                # Anfragezeile, die nie kommt: der Browser meldet "hat
-                # eine ungueltige Antwort gesendet", die Konsole bleibt
-                # stumm, und niemand kommt darauf.
+                # Ein Browser, der https:// aufruft (etwa weil Chrome die
+                # Adresse selbsttaetig hochstuft), schickt zuerst einen
+                # TLS-Handshake. Ohne diesen Zweig wartet der Server auf
+                # eine Anfragezeile, die nie kommt: der Browser meldet
+                # nur "ungueltige Antwort", Log und Konsole bleiben
+                # stumm. MSG_PEEK liest das Byte, ohne es zu verbrauchen.
                 try:
                     first = self.connection.recv(1, socket.MSG_PEEK)
                 except Exception:
@@ -125,11 +125,16 @@ class StoppableWSGIRefServer(ServerAdapter):
             write_log(1, 'Webserver beendet')
 
     def stop(self, timeout=5.0):
-        """Beendet serve_forever(). Darf nicht aus dem Server-Thread
-        gerufen werden."""
+        """Beendet serve_forever(). Nicht aus dem Thread rufen, der
+        serve_forever() ausfuehrt.
+
+        True, wenn der Server gestoppt ist (auch bei wiederholtem Aufruf).
+        False, wenn er binnen timeout nicht gestartet ist oder shutdown()
+        scheitert.
+        """
         if self._stopped:
             return True
-        # Falls stop() kommt, bevor der Server ueberhaupt lauscht.
+        # stop() kann kommen, bevor der Server lauscht: bis timeout warten.
         if not self.started.wait(timeout):
             write_log(0, 'Webserver war nicht gestartet, nichts zu stoppen')
             return False

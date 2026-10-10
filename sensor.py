@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Thread, der den SDS011 ausliest und den AppState fuellt.
+"""Thread, der den SDS011 ausliest und die Messwerte in den AppState schreibt.
 
-Enthaelt zugleich die Verbindungsaufsicht: Verbinden ist explizit (der
-Benutzer setzt state.connection_wanted), Verbunden-bleiben ist
-automatisch. Reisst die Strecke mitten in der Messfahrt ab, raeumt der
-Reader das von selbst auf -- mit wachsender Wartezeit, statt wie frueher
-im Sekundentakt endlos neu zu versuchen.
+Zugleich die Verbindungsaufsicht: Der Benutzer aeussert nur den Wunsch
+(die Weboberflaeche setzt state.connection_wanted). Aufbau und
+Wiederverbinden nach einem Abbruch erledigt der Reader selbst -- nach
+Fehlschlaegen mit wachsender Wartezeit (Backoff), damit ein
+ausgeschalteter Sensor nicht Akku und Log belastet.
+Die Hardware steckt hinter dem uebergebenen Transport.
 """
 
 from __future__ import absolute_import
@@ -20,6 +21,7 @@ from transport import TransportError
 
 
 class SensorReader(threading.Thread):
+    """Daemon-Thread: Verbindung halten, Bytes lesen, Pakete dekodieren."""
 
     # So viel wird pro Runde maximal angefordert. Der Sensor sendet
     # etwa ein 10-Byte-Paket pro Sekunde.
@@ -38,7 +40,11 @@ class SensorReader(threading.Thread):
 
     # -- Verbindung ---------------------------------------------------
     def _drop(self, message):
-        """Verbindung als weg markieren und den Grund anzeigen."""
+        """Verbindung trennen, Decoder zuruecksetzen und den Grund anzeigen.
+
+        Halb empfangene Pakete gehoeren zur alten Verbindung, deshalb ein
+        neuer Decoder.
+        """
         try:
             self._transport.disconnect()
         except Exception as exc:
@@ -50,7 +56,11 @@ class SensorReader(threading.Thread):
             self._state.set_connection(state_module.CONN_DISCONNECTED, message)
 
     def _try_connect(self):
-        """Ein Verbindungsversuch. Liefert True bei Erfolg."""
+        """Ein Verbindungsversuch. Liefert True bei Erfolg.
+
+        Bei einem Fehler wartet die Methode selbst die Backoff-Zeit ab
+        (state.wait, endet sofort beim Beenden) und liefert dann False.
+        """
         device_id, _ = self._state.device()
         self._state.set_connection(state_module.CONN_CONNECTING, u'')
         try:
@@ -63,8 +73,8 @@ class SensorReader(threading.Thread):
             self._state.wait(delay)
             return False
         except Exception as exc:
-            # Unerwartetes nicht verschlucken, aber auch nicht den Thread
-            # mitreissen.
+            # Unerwartetes protokollieren und anzeigen, aber den Thread
+            # nicht beenden.
             delay = self._backoff.next_delay()
             write_log(0, u'Unerwarteter Fehler beim Verbinden: {0}'.format(to_text(exc)))
             self._state.set_connection(state_module.CONN_RETRYING,
@@ -110,7 +120,7 @@ class SensorReader(threading.Thread):
                 continue
 
             if not chunk:
-                # Nichts da -- kurz warten, statt zu busy-loopen.
+                # Nichts da: kurz warten, sonst dreht die Schleife leer.
                 if self._state.wait(self._idle_wait):
                     break
                 continue
@@ -122,5 +132,6 @@ class SensorReader(threading.Thread):
                     reading.pm_25, reading.pm_10))
 
     def stop(self):
+        """Schleife beenden und den Transport schliessen."""
         self._running = False
         self._transport.close()

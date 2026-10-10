@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Wartezeiten zwischen Verbindungsversuchen.
+"""Wachsende Wartezeiten zwischen Wiederholungsversuchen.
 
-Reine Rechnerei ohne Uhr und ohne Threads, damit sie ohne echte
-Wartezeit testbar ist.
+Genutzt von sensor.py (Bluetooth-Verbindung) und gps.py (Neuanmeldung
+des GPS). Reine Rechnerei ohne Uhr und ohne Warten, damit sie ohne
+echte Wartezeit testbar ist; das Warten selbst macht der Aufrufer.
 """
 
 from __future__ import absolute_import
 
 
 class Backoff(object):
-    """Wachsende Wartezeit zwischen Fehlversuchen.
+    """Exponentiell wachsende Wartezeit: start, start*factor, ...,
+    hoechstens maximum Sekunden.
 
-    Frueher versuchte read() jede Sekunde neu zu verbinden, endlos. Auf
-    dem Handy kostet das Akku und flutet das Log -- ausgerechnet dann,
-    wenn der Sensor aus ist.
+    Nicht in festem Takt neu versuchen: Ist der Sensor aus oder hat das
+    GPS keinen Empfang, kostet das auf dem Handy Akku und flutet das Log.
     """
 
     def __init__(self, start=1.0, factor=2.0, maximum=60.0):
@@ -33,4 +34,5 @@ class Backoff(object):
         return min(self.start * (self.factor ** self.attempts), self.maximum)
 
     def reset(self):
+        """Nach einem Erfolg wieder mit start beginnen."""
         self.attempts = 0

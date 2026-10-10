@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Byte-Quelle fuer den SDS011.
+"""Byte-Quelle fuer den SDS011: Schnittstelle Transport und ihre Varianten.
 
-Zwei Implementierungen hinter derselben Schnittstelle: die echte
-Bluetooth-Verbindung ueber androidhelper und eine Simulation, mit der
-das Programm ohne Geraet am PC laeuft.
+Hier liegen Bluetooth unter Android (androidhelper) und die Simulation
+(SDS011_FAKE=1); die RFCOMM-Variante fuer den PC steckt in
+bluetooth_desktop.py. create_transport() waehlt passend zur Umgebung.
+Der SensorReader verbindet und liest, webapp fragt die Geraeteliste ab.
 """
 
 from __future__ import absolute_import
@@ -32,15 +33,17 @@ def _is_mac(value):
 
 
 def _text(value):
-    """Nur echter Text taugt als Name -- sonst steht im Browser
-    '[object Object]'."""
+    """value ohne Randleerzeichen, wenn es als Name taugt, sonst None.
+
+    Kein Name sind leere Texte, MAC-Adressen und Objekte; ein Objekt
+    erschiene im Browser als '[object Object]'."""
     if isinstance(value, _STRING_TYPES) and value.strip() and not _is_mac(value):
         return value.strip()
     return None
 
 
 def _name_of(obj):
-    """Name aus einem Geraeteobjekt, sonst None."""
+    """Name aus einem Geraeteobjekt (dict), sonst None."""
     if not isinstance(obj, dict):
         return None
     for key in ('name', 'Name', 'alias', 'Alias'):
@@ -93,10 +96,10 @@ class TransportError(Exception):
 class Transport(object):
     """Byte-Quelle mit explizitem Verbindungszustand.
 
-    Das Verbinden ist Sache des Aufrufers (SensorReader), nicht mehr ein
-    Nebeneffekt von read(). Frueher versuchte read() bei jedem Aufruf
-    neu zu verbinden -- endlos, im Sekundentakt, ohne dass die
-    Oberflaeche davon etwas mitbekam.
+    Verbinden ist Sache des Aufrufers (SensorReader): read() verbindet
+    nie selbst neu, sondern wirft TransportError, wenn die Verbindung
+    weg ist. Der SensorReader prueft is_connected(), verbindet mit
+    wachsender Wartezeit neu und zeigt den Zustand in der Oberflaeche.
     """
 
     def available_devices(self):
@@ -124,12 +127,12 @@ class Transport(object):
 
 
 class AndroidBluetoothTransport(Transport):
-    """Liest den Sensor ueber das HC05/HC06-Modul unter QPython.
+    """Liest den Sensor ueber das HC05/HC06-Modul unter QPython (SL4A).
 
-    Gegenueber frueher: das Ergebnis von b64decode bleibt bytes. Der
-    Umweg ueber str(...)[2:-1] und unicode_escape ist weg -- er hat die
-    Bytes ueber ihre repr()-Darstellung verarbeitet und brach bei jedem
-    Byte, das als Anfuehrungszeichen oder Backslash dargestellt wird.
+    bluetoothReadBinary liefert Base64-Text; read() gibt das Ergebnis
+    von b64decode unveraendert als bytes weiter. Nicht ueber repr() oder
+    unicode_escape gehen: das verfaelscht Bytes, die als
+    Anfuehrungszeichen oder Backslash dargestellt werden.
     """
 
     def __init__(self, device_id=None, uuid=None):
@@ -139,21 +142,22 @@ class AndroidBluetoothTransport(Transport):
         self._droid = androidhelper.Android()
         self._conn_id = None
         # Alle androidhelper-Aufrufe laufen ueber dieselbe
-        # RPC-Verbindung. Seit der Webserver jede Anfrage in einem
-        # eigenen Thread bearbeitet, koennen die Geraeteliste aus
-        # /devices/ und das Lesen im SensorReader gleichzeitig
-        # zugreifen -- ineinander verschachtelte Aufrufe wuerden die
-        # Antworten durcheinanderbringen.
+        # RPC-Verbindung. Der Webserver bearbeitet jede Anfrage in einem
+        # eigenen Thread, die Geraeteliste aus /devices/ und das Lesen
+        # im SensorReader koennen also gleichzeitig zugreifen.
+        # Verschachtelte Aufrufe wuerden die Antworten vertauschen.
         self._lock = threading.Lock()
 
     # -- Geraeteliste -------------------------------------------------
     def available_devices(self):
-        """Gekoppelte Geraete, damit die MAC nicht im Quelltext stehen muss.
+        """Gekoppelte (ersatzweise gefundene) Geraete als
+        [{'id': MAC, 'name': ...}, ...].
 
-        androidhelper leitet jeden Methodennamen per RPC weiter, je nach
-        QPython-Version existiert die Gegenstelle also oder eben nicht.
-        Deshalb defensiv: was nicht geht, faellt auf die konfigurierte
-        Adresse zurueck.
+        Damit kann der Sensor in der Oberflaeche gewaehlt werden, statt
+        dass die MAC in config.py stehen muss. androidhelper leitet jeden
+        Methodennamen per RPC weiter; ob die Gegenstelle existiert, haengt
+        von der QPython-Version ab. Deshalb defensiv: Liefert keine Abfrage
+        etwas, kommt die konfigurierte Adresse als einziger Eintrag.
         """
         devices = []
         for method in ('bluetoothGetBondedDevices', 'bluetoothGetDiscoveredDevices'):
@@ -272,28 +276,22 @@ class AndroidBluetoothTransport(Transport):
 
 
 class FakeTransport(Transport):
-    """Simulierter Sensor.
+    """Simulierter Sensor: liefert alle interval Sekunden ein gueltiges
+    SDS011-Paket.
 
-    Die Werte sind bewusst verrauscht statt glatt. Eine perfekt
-    gleichmaessige Messreihe ist in echten Feinstaubdaten ein Hinweis auf
-    einen defekten Sensor -- eine Simulation, die so aussieht, traegt die
-    falsche Erwartung ins Frontend und laesst die Grenzwertfarben nie
-    ausloesen.
-
-    Modelliert wird:
+    Die Werte sind bewusst verrauscht statt glatt, damit Diagramm und
+    Grenzwertfarben realistisch reagieren. Modelliert wird:
       * eine langsam driftende Grundlast (Random Walk)
       * die Grobfraktion, die den Abstand zwischen PM2.5 und PM10 macht
       * gelegentliche kurze Spitzen (vorbeifahrendes Auto, Baustelle),
         die vor allem PM10 hochziehen
+    Es gilt immer PM10 >= PM2.5, weil PM10 die feineren Partikel
+    einschliesst.
 
-    Physikalisch gilt immer PM10 >= PM2.5, weil PM10 die feineren
-    Partikel einschliesst. Das haelt die Simulation ein.
-
-    seed sorgt fuer Reproduzierbarkeit: derselbe Startwert ergibt
-    dieselbe Messreihe. seed=None wuerfelt bei jedem Lauf neu.
-
-    Mit noise=True kommt zusaetzlich Muell zwischen die Pakete, um die
-    Resynchronisation des FrameDecoders zu ueben.
+    seed: derselbe Startwert ergibt dieselbe Messreihe, None wuerfelt
+    bei jedem Lauf neu. noise=True streut Muell zwischen die Pakete, um
+    die Resynchronisation des FrameDecoders zu testen. fail_connects und
+    drop_after simulieren Verbindungsfehler (siehe __init__).
     """
 
     # Messbereich des SDS011.
@@ -315,7 +313,7 @@ class FakeTransport(Transport):
         self._next_frame = self._clock()
         self._step = 0
 
-        # Zum Ueben der Verbindungslogik: die ersten fail_connects
+        # Zum Testen der Verbindungslogik: die ersten fail_connects
         # Versuche schlagen fehl, nach drop_after Lesevorgaengen reisst
         # die Verbindung ab.
         self._fail_connects = fail_connects
@@ -412,10 +410,11 @@ class FakeTransport(Transport):
 
 
 def create_transport():
-    """Waehlt die Implementierung anhand der Umgebung.
+    """Liefert den passenden Transport fuer die Umgebung.
 
-    Auf dem Desktop ohne SDS011_FAKE=1 wird ueber RFCOMM verbunden, genau wie auf dem Geraet ueber die
-    MAC-Adresse.
+    SDS011_FAKE=1: Simulation. Unter Android: androidhelper. Sonst (PC):
+    RFCOMM-Socket aus bluetooth_desktop. Echte Verbindungen laufen
+    ueberall ueber die MAC-Adresse des Moduls.
     """
     if config.use_fake_hardware():
         write_log(1, 'Benutze simulierten Sensor (FakeTransport)')
@@ -423,8 +422,9 @@ def create_transport():
     if config.on_android():
         write_log(1, 'Benutze Bluetooth ueber androidhelper')
         return AndroidBluetoothTransport()
-    # Erst hier importieren: das Modul braucht socket.AF_BLUETOOTH, das
-    # es unter Python 2 auf dem Geraet nicht gibt.
+    # Erst hier importieren: bluetooth_desktop importiert selbst aus
+    # diesem Modul (ein Import oben waere zirkulaer) und wird auf Android
+    # so gar nicht erst geladen.
     from bluetooth_desktop import BluetoothSocketTransport
     write_log(1, 'Benutze Bluetooth ueber RFCOMM-Socket')
     return BluetoothSocketTransport()

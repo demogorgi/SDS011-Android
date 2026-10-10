@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Webserver. Kennt nur den AppState, keine Threads und keine Hardware.
+"""HTTP-Routen der Oberflaeche (bottle).
 
-Wichtig: hier wird eine Bottle()-Instanz benutzt statt der
-Modul-Dekoratoren. Dadurch faellt der Import von bottle.run weg, der
-frueher die Aufzeichnungs-Flagge 'run' ueberschrieben hat.
+create_app() baut die App fuer main.py. Die Routen lesen und setzen den
+AppState und fragen beim Transport die gekoppelten Geraete ab; die
+Hardware bedienen sie nicht. Sensor, GPS und Aufzeichnung laufen in
+eigenen Threads und reagieren auf den Zustand.
+
+Eine eigene Bottle()-Instanz statt der globalen Modul-Dekoratoren:
+jeder Aufruf liefert eine unabhaengige App.
 """
 
 from __future__ import absolute_import
@@ -17,21 +21,19 @@ import kml
 from logging_util import to_text, write_log
 
 
-# Absolut, damit es nicht auf das Arbeitsverzeichnis ankommt -- das ist
-# je nach QPython-Version ein anderes. Frueher stand hier lookup= statt
-# template_lookup=; bottle nahm das als Template-Variable und suchte in
-# ./views/, was nur klappte, wenn zufaellig im Projektordner gestartet
-# wurde. Eine feste Liste, weil bottle den Template-Cache ueber ihre
-# id() fuehrt.
+# Absoluter Pfad, weil das Arbeitsverzeichnis je nach QPython-Version
+# ein anderes ist. Uebergeben als template_lookup=; ein lookup= haelt
+# bottle fuer eine Template-Variable und sucht dann in ./views/. Eine
+# feste Liste, weil bottle den Template-Cache ueber ihre id() fuehrt.
 TEMPLATE_LOOKUP = [config.TEMPLATEDIR]
 
 def _query(name, default=u''):
     """Einen Query-Parameter als Text lesen.
 
-    bottle dekodiert Query-Werte latin-1; aus %C3%BC wuerde sonst
+    bottle dekodiert Query-Werte als latin-1; aus %C3%BC wuerde so
     Buchstabensalat statt eines Umlauts. getunicode() rechnet das um,
-    ist aber nicht in jeder bottle-Version vorhanden -- daher der
-    Rueckfall.
+    fehlt aber in manchen bottle-Versionen -- daher der Rueckfall.
+    Leere Werte ergeben default.
     """
     value = None
     getunicode = getattr(request.query, 'getunicode', None)
@@ -52,6 +54,12 @@ def _int_or_none(value):
 
 
 def create_app(state, on_shutdown=None, transport=None):
+    """Die Bottle-App mit allen Routen bauen.
+
+    state: der gemeinsame AppState. on_shutdown: wird von /__exit in
+    einem eigenen Thread gerufen. transport: liefert die gekoppelten
+    Geraete fuer /devices/ und /connect/; ohne ihn bleibt die Liste leer.
+    """
     app = Bottle()
 
     @app.route('/')
@@ -66,8 +74,7 @@ def create_app(state, on_shutdown=None, transport=None):
     # -- Sensorverbindung ---------------------------------------------
     @app.route('/devices/')
     def devices():
-        """Gekoppelte Geraete zur Auswahl. Damit muss die MAC-Adresse
-        nicht mehr im Quelltext stehen."""
+        """Gekoppelte Geraete fuer die Auswahlliste, dazu das vorgewaehlte."""
         found = []
         if transport is not None:
             try:
@@ -111,9 +118,12 @@ def create_app(state, on_shutdown=None, transport=None):
         return {'value': u'Verbindung getrennt.'}
 
     def _requires_sensor(what):
-        """Ohne verbundenen Sensor entstuenden Dateien voller Nullen --
-        die sehen aus wie eine echte Messung. Auch serverseitig
-        abgelehnt, damit eine veraltete Seite es nicht doch ausloest."""
+        """None, wenn ein Sensor verbunden ist, sonst die Ablehnung.
+
+        Ohne Sensor entstuenden Dateien voller Nullen, die wie eine echte
+        Messung aussehen. Die Oberflaeche sperrt die Knoepfe schon; die
+        Pruefung hier faengt veraltete Seiten ab. Die Meldung erscheint
+        zusaetzlich als Fehler in der Statusanzeige."""
         if state.is_connected():
             return None
         message = u'%s nicht möglich: kein Sensor verbunden.' % what
@@ -122,9 +132,11 @@ def create_app(state, on_shutdown=None, transport=None):
         return {'value': message, 'refused': True}
 
     def _requires_no_other_mode(what):
-        """Die Modi schliessen sich aus. Die Knoepfe sperren das schon,
-        aber nur nach dem Stand der letzten Abfrage -- eine veraltete
-        Seite oder ein zweites Geraet koennte sonst umschalten."""
+        """None, wenn kein anderer Modus laeuft, sonst die Ablehnung.
+
+        Die Modi schliessen sich aus. Die Knoepfe sperren das nur nach
+        dem Stand der letzten Statusabfrage; eine veraltete Seite oder
+        ein zweites Geraet koennte sonst umschalten."""
         active = [name for flag, name in ((state.recording, u'Messfahrt'),
                                           (state.local, u'Lokale Messung'),
                                           (state.stationary, u'Stationärer Modus'))
@@ -132,7 +144,7 @@ def create_app(state, on_shutdown=None, transport=None):
         if not active:
             return None
         # Nur in der Antwort, nicht als bleibender Fehler: nach dem
-        # Beenden des anderen Modus waere der Hinweis sonst falsch.
+        # Beenden des anderen Modus waere der Hinweis falsch.
         message = u'%s nicht möglich: erst %s beenden.' % (what, active[0])
         write_log(1, message)
         return {'value': message, 'refused': True}
@@ -172,9 +184,9 @@ def create_app(state, on_shutdown=None, transport=None):
             return _start_stat()
 
     def _start_stat():
-        # Hier waere es besonders unangenehm: der stationaere Modus
-        # laedt die Werte zu api.luftdaten hoch. Nullen aus einem nicht
-        # verbundenen Sensor landeten in einem oeffentlichen Datensatz.
+        # Hier besonders wichtig: der stationaere Modus laedt die Werte
+        # zu sensor.community (luftdaten) hoch. Nullen ohne Sensor landeten in einem
+        # oeffentlichen Datensatz.
         refused = (_requires_sensor(u'Stationärer Modus')
                    or _requires_no_other_mode(u'Stationärer Modus'))
         if refused:
@@ -205,8 +217,8 @@ def create_app(state, on_shutdown=None, transport=None):
             return refused
         state.set_place(_query('place'))
         state.recording = False
-        # Ausdruecklich: die lokale Messung laedt nichts hoch. Das
-        # passiert nur im stationaeren Modus.
+        # Die lokale Messung laedt nichts hoch; das tut nur der
+        # stationaere Modus.
         state.stationary = False
         state.local = True
         state.clear_error()
@@ -225,6 +237,7 @@ def create_app(state, on_shutdown=None, transport=None):
 
     @app.route('/status/')
     def status():
+        """Alles, was die Oberflaeche bei der Statusabfrage anzeigt."""
         snap = state.snapshot()
         ret_data = {
             'value': snap['status_text'],
@@ -238,9 +251,8 @@ def create_app(state, on_shutdown=None, transport=None):
             'pm_25': '%6.1f' % snap['pm_25'],
             'pm_25_color': kml.color_selection_rgb(snap['pm_25'], 'pm_25'),
             'error_msg': snap['error_msg'],
-            # Damit das Frontend den Button-Zustand aus dem Server
-            # ableiten kann statt aus dem letzten Klick -- nach einem
-            # Reload stimmte er sonst nicht mehr.
+            # Die Knoepfe richten sich nach diesen Werten, nicht nach
+            # dem letzten Klick; so stimmen sie auch nach einem Reload.
             'recording': snap['recording'],
             'local': snap['local'],
             'stationary': snap['stationary'],
@@ -258,8 +270,9 @@ def create_app(state, on_shutdown=None, transport=None):
         write_log(0, 'exit-route!')
         state.shutdown()
         if on_shutdown is not None:
-            # Nicht im Request-Handler joinen -- das blockierte frueher
-            # die Antwort, bis alle sleep()s durchgelaufen waren.
+            # Eigener Thread: on_shutdown wartet auf das Ende der
+            # Mess-Threads und stoppt zuletzt den Webserver; im
+            # Request-Handler hielte das die Antwort auf.
             worker = threading.Thread(target=on_shutdown)
             worker.daemon = True
             worker.start()

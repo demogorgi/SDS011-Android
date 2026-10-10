@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Bluetooth-Anbindung fuer PC und Laptop.
+"""Bluetooth-Anbindung fuer PC und Laptop (Windows, Linux).
 
-Spricht das HC05/HC06-Modul ueber RFCOMM an -- dieselbe Denkweise wie
-unter Android: verbunden wird ueber die MAC-Adresse, nicht ueber eine
-COM-Port-Nummer. socket.AF_BLUETOOTH steckt in der Standardbibliothek,
-es braucht also weder pyserial noch PyBluez.
+Spricht das HC05/HC06-Modul ueber RFCOMM an. Wie unter Android wird
+ueber die MAC-Adresse verbunden, nicht ueber eine COM-Port-Nummer.
+socket.AF_BLUETOOTH steckt in der Standardbibliothek von Python 3, es
+braucht also weder pyserial noch PyBluez. Fuer die Geraeteauswahl in
+der Oberflaeche liest paired_devices() die gekoppelten Geraete ueber
+PowerShell bzw. bluetoothctl.
 
 Voraussetzung: das Modul muss einmal in den Bluetooth-Einstellungen des
 Betriebssystems gekoppelt sein -- Windows verlangt fuer RFCOMM eine
 bestehende Kopplung.
 
-Dieses Modul laeuft nur auf dem Desktop. Auf dem Geraet uebernimmt
+Nur fuer den PC. Unter Android uebernimmt
 transport.AndroidBluetoothTransport; transport.create_transport()
-importiert hier deshalb erst bei Bedarf.
+importiert dieses Modul erst, wenn es gebraucht wird.
 """
 
 from __future__ import absolute_import
@@ -115,7 +117,11 @@ def paired_devices():
 
 
 class BluetoothSocketTransport(Transport):
-    """RFCOMM-Verbindung zum SDS011 ueber das HC05/HC06-Modul."""
+    """RFCOMM-Verbindung zum SDS011 ueber das HC05/HC06-Modul.
+
+    Fehler beim Verbinden und Lesen kommen als TransportError; der
+    SensorReader verbindet daraufhin neu.
+    """
 
     # Wie lange auf den Verbindungsaufbau gewartet wird.
     CONNECT_TIMEOUT = 10.0
@@ -133,10 +139,15 @@ class BluetoothSocketTransport(Transport):
         self._connect_timeout = connect_timeout or self.CONNECT_TIMEOUT
         self._read_timeout = read_timeout or self.READ_TIMEOUT
         self._socket = None
+        # Schuetzt nur _socket. recv() laeuft ohne Lock, damit
+        # disconnect() aus einem anderen Thread nicht auf das
+        # Lesezeitfenster warten muss.
         self._lock = threading.Lock()
 
     # -- Geraeteliste -------------------------------------------------
     def available_devices(self):
+        """Gekoppelte Geraete als [{'id', 'name'}, ...]. Ist keins zu
+        finden, steht die Adresse aus config.py allein in der Liste."""
         try:
             devices = self._lister()
         except Exception as exc:
@@ -155,6 +166,8 @@ class BluetoothSocketTransport(Transport):
             return self._socket is not None
 
     def connect(self, device_id=None):
+        """Trennt eine bestehende Verbindung und verbindet mit device_id
+        (Standard: Adresse aus config.py). TransportError bei Fehlern."""
         address = device_id or self._default_device
         self.disconnect()
 
@@ -198,6 +211,8 @@ class BluetoothSocketTransport(Transport):
 
     # -- Daten --------------------------------------------------------
     def read(self, max_bytes):
+        """Bis zu max_bytes Bytes; b'', wenn im Lesezeitfenster nichts
+        kam. TransportError, wenn die Verbindung weg ist."""
         with self._lock:
             sock = self._socket
         if sock is None:
@@ -206,8 +221,9 @@ class BluetoothSocketTransport(Transport):
             data = sock.recv(max_bytes)
         except socket.timeout:
             # Kein Paket im Zeitfenster -- normal, der Sensor sendet nur
-            # etwa einmal pro Sekunde. socket.timeout muss vor OSError
-            # stehen, seit Python 3.10 ist es ein Alias von TimeoutError.
+            # etwa einmal pro Sekunde. Muss vor dem allgemeinen except
+            # stehen: seit Python 3.10 ist socket.timeout ein Alias von
+            # TimeoutError und damit auch ein OSError.
             return b''
         except Exception as exc:
             raise TransportError(u'Verbindung zum Sensor verloren: %s' % to_text(exc))

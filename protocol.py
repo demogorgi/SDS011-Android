@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
-"""SDS011-Protokoll. Reine Byte-Arithmetik, keine Hardware, keine
-Threads -- deshalb vollstaendig am PC testbar.
+"""SDS011-Protokoll: zerlegt den Bytestrom des Sensors in Messwerte.
+
+Reine Byte-Arithmetik ohne Hardware und Threads, deshalb vollstaendig am
+PC testbar. sensor.py nutzt den FrameDecoder, die Simulation in
+transport.py baut ihre Pakete mit build_frame().
 
 Ein Datenpaket ist 10 Byte lang:
 
     AA C0 | PM25_L PM25_H PM10_L PM10_H ID1 ID2 | CHK AB
 
-CHK ist die Summe der sechs Nutzbytes modulo 256. Die Pruefsumme wurde
-frueher zwar mitgelesen, aber nie geprueft.
+Die PM-Werte stehen als Zehntel ug/m3 im Little Endian. CHK ist die
+Summe der sechs Nutzbytes modulo 256.
 
-Portabilitaet: bytearray[i] liefert unter Python 2 und 3 ein int,
-bytearray.find(b'..') funktioniert ebenfalls in beiden. Deshalb hier
-durchgehend bytearray statt str/bytes.
+Durchgehend bytearray statt str/bytes: nur bytearray[i] liefert unter
+Python 2 und 3 gleichermassen ein int.
 """
 
 from __future__ import absolute_import
@@ -25,7 +27,7 @@ _HEAD_BYTES = b'\xaa'
 
 
 class Reading(object):
-    """Ein gueltiges Messpaket."""
+    """Ein gueltiges Messpaket: PM-Werte in ug/m3, Geraete-ID als int."""
 
     __slots__ = ('pm_25', 'pm_10', 'device_id')
 
@@ -77,7 +79,7 @@ def parse_frame(frame):
 
 
 def build_frame(pm_25, pm_10, device_id=0xA160):
-    """Baut ein gueltiges Paket -- fuer Tests und die Simulation."""
+    """Baut ein gueltiges Paket (bytes) -- fuer Tests und die Simulation."""
     raw_25 = int(round(pm_25 * 10))
     raw_10 = int(round(pm_10 * 10))
     payload = bytearray([
@@ -93,10 +95,11 @@ def build_frame(pm_25, pm_10, device_id=0xA160):
 class FrameDecoder(object):
     """Sammelt Bytes und gibt vollstaendige, gueltige Pakete heraus.
 
-    Ersetzt das fruehere byteweise Lesen mit time.sleep(1), das sich
-    gegen den ~1-Hz-Takt des Sensors dauerhaft desynchronisiert hat.
-    Bei Muell im Strom wird um genau ein Byte weitergeschoben und neu
-    nach einem Kopf gesucht.
+    Der Aufrufer reicht beliebig grosse Stuecke herein, so wie sie
+    ankommen, statt mit festen Wartezeiten zu lesen: die geraten gegen
+    den ~1-Hz-Takt des Sensors dauerhaft aus dem Tritt. Bei
+    einem ungueltigen Paket wird um genau ein Byte weitergeschoben und
+    neu nach einem Kopf gesucht. discarded_bytes zaehlt verworfene Bytes.
     """
 
     # Reicht fuer gut 100 Pakete; verhindert unbegrenztes Wachsen,

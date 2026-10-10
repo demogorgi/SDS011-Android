@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""GPS-Quelle und der Thread, der sie ausliest."""
+"""GPS-Quellen und der Thread, der sie regelmaessig ausliest.
+
+create_gps() waehlt die Quelle (Android, Simulation oder keine),
+GpsReader schreibt die Position in den AppState und meldet ein
+verstummtes GPS beim Betriebssystem neu an. Angelegt und gestartet
+von main.py.
+"""
 
 from __future__ import absolute_import
 
@@ -12,8 +18,10 @@ from state import monotonic, utcnow
 
 
 class GpsSource(object):
-    """read_position() liefert (lat, lon) oder (0, 0), wenn kein Fix
-    vorliegt."""
+    """Basisklasse aller GPS-Quellen.
+
+    read_position() liefert (lat, lon), ohne Fix (0, 0).
+    """
 
     # False: auf diesem Geraet gibt es gar kein GPS.
     available = True
@@ -23,12 +31,13 @@ class GpsSource(object):
 
     def read_fix(self):
         """(lat, lon, neu) -- neu ist True, wenn seit dem letzten Aufruf
-        eine frische Position eingetroffen ist."""
+        eine frische Position eingetroffen ist. Standard: jeder Fix gilt
+        als neu."""
         lat, lon = self.read_position()
         return (lat, lon, (lat, lon) != (0, 0))
 
     def restart(self):
-        """Beim Betriebssystem ab- und wieder anmelden."""
+        """Beim Betriebssystem ab- und wieder anmelden. Standard: nichts."""
         pass
 
     def close(self):
@@ -36,10 +45,11 @@ class GpsSource(object):
 
 
 class AndroidGps(GpsSource):
+    """GPS des Handys ueber SL4A (androidhelper)."""
 
-    # min_distance 0: auch im Stand alle interval_ms eine Position.
-    # Frueher 10 m -- wer stand, bekam keine neuen Positionen mehr und
-    # war nicht von einem verlorenen GPS zu unterscheiden.
+    # min_distance 0: sonst liefert Android im Stand keine neuen
+    # Positionen, und Stehen waere nicht von einem verlorenen GPS zu
+    # unterscheiden.
     def __init__(self, interval_ms=5000, min_distance=0):
         import androidhelper
         self._droid = androidhelper.Android()
@@ -131,6 +141,8 @@ class NoGps(GpsSource):
 
 
 def create_gps(state):
+    """Passende Quelle: FakeGps bei SDS011_FAKE, AndroidGps auf dem
+    Handy, sonst NoGps. state wird nicht benutzt."""
     if config.use_fake_hardware():
         write_log(1, 'Benutze simuliertes GPS (FakeGps)')
         return FakeGps()
@@ -142,7 +154,12 @@ def create_gps(state):
 
 
 class GpsReader(threading.Thread):
-    """Haelt die Position im AppState aktuell."""
+    """Daemon-Thread, der alle interval Sekunden die Position in den
+    AppState schreibt, solange state.sensing gilt.
+
+    Bleibt das GPS laenger stumm, meldet er die Quelle neu an; restarts
+    zaehlt diese Neuanmeldungen.
+    """
 
     def __init__(self, state, source, interval=None, clock=None,
                  backoff=None):
@@ -167,8 +184,6 @@ class GpsReader(threading.Thread):
     def step(self):
         """Eine Runde: Position lesen, bei langer Stille neu anmelden."""
         lat, lon, new = self._source.read_fix()
-        # Zeitstempel wandert mit; er wurde frueher nur einmal im
-        # Konstruktor gesetzt.
         self._state.set_position(lat, lon, utcnow())
         now = self._clock()
         if new:
@@ -187,13 +202,12 @@ class GpsReader(threading.Thread):
             self._silent_since = now
 
     def run(self):
-        # Frueher wurde hier die globale Variable t_gps abgefragt statt
-        # self -- die Klasse war an ihren Instanznamen gebunden.
         while self._running and self._state.sensing:
             self.step()
             if self._state.wait(self._interval):
                 break
 
     def stop(self):
+        """Schleife beenden und die Quelle schliessen."""
         self._running = False
         self._source.close()

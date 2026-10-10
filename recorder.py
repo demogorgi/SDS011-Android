@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Aufzeichnung (KML/CSV) und stationaerer Modus.
+"""Aufzeichnung (KML/CSV) und Upload im stationaeren Modus.
 
-Entspricht der frueheren Funktion start_sensor(). Alle Wartezeiten
-laufen ueber state.wait(), damit das Programm sich beenden laesst,
-ohne bis zu vier Minuten am sleep(240) zu haengen.
+main.py startet den Recorder als Thread. Er liest Messwert und Position
+aus dem AppState (state.py), den Sensor selbst liest er nicht. Alle
+Wartezeiten laufen ueber state.wait(), damit sich das Programm sofort
+beenden laesst und nicht bis zu STAT_INT Sekunden haengt.
 """
 
 from __future__ import absolute_import
@@ -50,8 +51,9 @@ def is_tls_error(exc):
 
     Altes Android hat oft ein ssl-Modul, aber veraltete Zertifikate --
     dann scheitert jeder HTTPS-Upload, obwohl HTTP ginge. Ein Timeout
-    im Handshake zaehlt nicht: der Fehlertext enthaelt zwar '_ssl.c',
-    ist aber nur ein langsames Netz.
+    im Handshake ('_ssl.c:...: The handshake operation timed out')
+    zaehlt nicht, das ist nur langsames Netz. Deshalb haben die
+    _TRANSIENT_MARKERS Vorrang.
     """
     reason = getattr(exc, 'reason', None)
     text = (to_text(exc) + u' ' + to_text(reason or u'')).upper()
@@ -97,10 +99,9 @@ def post_json(url, body, headers, timeout=30):
 def _coord(value):
     """GPS-Koordinate mit fester Genauigkeit.
 
-    str(51.4391) liefert je nach Rechenweg 51.439099999999996 --
-    dieses Float-Rauschen stand bisher in CSV und KML. Sechs
-    Nachkommastellen entsprechen etwa 11 cm und sind damit deutlich
-    genauer als jedes Handy-GPS.
+    Nicht str(): das liefert je nach Rechenweg Float-Rauschen wie
+    51.439099999999996. Sechs Nachkommastellen entsprechen etwa 11 cm
+    und sind damit genauer als jedes Handy-GPS.
     """
     return '%.6f' % value
 
@@ -113,8 +114,10 @@ _UMLAUTS = [(u'ä', u'ae'), (u'ö', u'oe'), (u'ü', u'ue'),
 def slugify(text, maxlen=40):
     """Freitext in einen Dateinamen-Baustein verwandeln.
 
-    "Kletterhalle Duisburg" -> "kletterhalle_duisburg". Leerer oder
-    unbrauchbarer Text ergibt '', dann bleibt der Dateiname wie bisher.
+    "Kletterhalle Duisburg" -> "kletterhalle_duisburg". Umlaute werden
+    umschrieben, uebrige Nicht-ASCII-Zeichen entfallen. Leerer oder
+    unbrauchbarer Text ergibt '', der Aufrufer nimmt dann einen
+    Standardnamen.
     """
     if not text:
         return ''
@@ -153,6 +156,12 @@ def _timestamp():
 
 
 class Recorder(threading.Thread):
+    """Thread, der je nach Modus aufzeichnet oder hochlaedt.
+
+    Laeuft, solange state.sensing gesetzt ist, und schliesst zum Schluss
+    offene KML-Dateien. Eigene Probleme zeigt er als Hinweis in der
+    Oberflaeche an, statt still zu sterben.
+    """
 
     # Wie oft geprueft wird, ob eine Taste gedrueckt wurde.
     TICK = 0.5
@@ -163,10 +172,10 @@ class Recorder(threading.Thread):
         self.daemon = True
         self._state = state
         self._outdir = outdir or config.OUTDIR
-        # Ueberschreibbar, damit Tests nicht 5 Sekunden warten muessen.
+        # Die Parameter ausser state sind fuer Tests, damit sie nicht
+        # KML_INT oder STAT_INT Sekunden warten muessen.
         self._kml_interval = config.KML_INT if kml_interval is None else kml_interval
         self._stat_interval = config.STAT_INT if stat_interval is None else stat_interval
-        # Wie schnell ein Tastendruck bemerkt wird.
         self._tick = self.TICK if tick is None else tick
         self._max_age = config.MAX_MEASUREMENT_AGE if max_age is None else max_age
         self._gps_max_age = config.GPS_MAX_AGE if gps_max_age is None else gps_max_age
@@ -178,8 +187,8 @@ class Recorder(threading.Thread):
         # Eigene Hinweise in der Oberflaeche, je Art. Nur die raeumt der
         # Recorder wieder weg, nicht etwa einen Verbindungsfehler.
         self._hints = {HINT_STALE: None, HINT_FAILURE: None}
-        # Zeitpunkt (monotonic) des letzten Uploads -- auch ueber Aus- und
-        # Wiedereinschalten hinweg nicht oefter als alle STAT_INT.
+        # Zeitpunkt (monotonic) des letzten Uploads. Bleibt beim Aus- und
+        # Wiedereinschalten erhalten: nie oefter als alle STAT_INT senden.
         self._last_push = None
         self.last_files = None
         self._fname_25 = None
@@ -199,7 +208,7 @@ class Recorder(threading.Thread):
         self._avg_count = 0
 
     def _open_files(self, local=False):
-        """Legt die Dateinamen fuer eine Aufzeichnung fest.
+        """Beginnt eine neue Aufzeichnung: Dateinamen, Mittelwerte, Spur.
 
         Die lokale Messung schreibt nur CSV: sie findet an einem festen
         Ort statt, eine KML-Spur aus lauter gleichen Punkten waere
@@ -236,12 +245,17 @@ class Recorder(threading.Thread):
 
     # -- Meldungen ----------------------------------------------------
     def _report(self, kind, message):
+        """Zeigt einen eigenen Hinweis an. Ins Log kommt er nur, wenn er
+        nicht schon angezeigt wird, sonst stuende er bei jedem Versuch erneut
+        dort."""
         if self._state.error() != message:
             write_log(0, message)
         self._state.report_error(message)
         self._hints[kind] = message
 
     def _clear(self, kind):
+        """Nimmt den eigenen Hinweis dieser Art zurueck, aber nur, wenn er
+        noch angezeigt wird. Eine fremde Meldung bleibt stehen."""
         hint = self._hints[kind]
         if hint is not None and self._state.error() == hint:
             self._state.clear_error()
@@ -252,7 +266,9 @@ class Recorder(threading.Thread):
 
         Nach einem Verbindungsabbruch bleibt der letzte Wert im AppState
         stehen. Ohne diese Pruefung wuerde er weiter aufgezeichnet und
-        sogar oeffentlich hochgeladen, als waere er frisch.
+        sogar oeffentlich hochgeladen, als waere er frisch. Bei None
+        erscheint ein Hinweis, der die Folge nennt (consequence, etwa
+        'nichts aufgezeichnet').
         """
         age = self._state.measurement_age()
         if age is None or age > self._max_age:
@@ -264,6 +280,9 @@ class Recorder(threading.Thread):
 
     # -- Ein Messschritt ----------------------------------------------
     def _record_step(self):
+        """Ein Messpunkt: CSV-Zeile, bei Messfahrt mit GPS-Fix zusaetzlich
+        je ein KML-Segment fuer PM2.5 und PM10. Zeigt die Mittelwerte im
+        Status an. Ohne aktuellen Messwert wird nichts geschrieben."""
         values = self._fresh_measurement(u'nichts aufgezeichnet')
         if values is None:
             # Die Spur nach der Luecke neu beginnen, statt eine gerade
@@ -325,8 +344,11 @@ class Recorder(threading.Thread):
 
     # -- Stationaerer Modus -------------------------------------------
     def _push_step(self):
-        """Laedt den aktuellen Wert hoch. Liefert False, wenn mangels
-        aktuellem Messwert nichts gesendet wurde."""
+        """Laedt den aktuellen Wert zu luftdaten (sensor.community) hoch.
+
+        Liefert False, wenn mangels aktuellem Messwert nichts gesendet
+        wurde, sonst True -- auch wenn der Upload scheiterte.
+        """
         values = self._fresh_measurement(u'nichts hochgeladen')
         if values is None:
             return False
@@ -342,7 +364,8 @@ class Recorder(threading.Thread):
         try:
             status_code = self._send(data, headers)
         except Exception as exc:
-            # Vorher stuerzte der Thread hier ohne Netz komplett ab.
+            # Kein Netz darf den Thread nicht beenden; der naechste
+            # Versuch folgt nach STAT_INT.
             self._state.report_error(u'Fehler bei Datenübertragung: {0}'.format(to_text(exc)))
             write_log(0, u'Upload fehlgeschlagen: {0}'.format(to_text(exc)))
             return True
@@ -354,16 +377,17 @@ class Recorder(threading.Thread):
             self._state.set_status(text)
             write_log(1, text)
         else:
-            # Lief frueher ohne 'global' ins Leere und erreichte das
-            # Frontend nie.
             self._state.report_error(
                 u'Fehler bei Datenübertragung, Status Code {0}.'.format(status_code))
             write_log(0, u'Upload Status Code {0}'.format(status_code))
         return True
 
     def _send(self, data, headers):
-        """POST zu luftdaten; scheitert HTTPS an TLS, einmal ueber HTTP
-        und danach dabei bleiben."""
+        """POST zu luftdaten, liefert den HTTP-Statuscode.
+
+        Scheitert HTTPS dauerhaft an TLS (siehe is_tls_error), wird sofort
+        ueber HTTP wiederholt, und alle weiteren Uploads bleiben bei HTTP.
+        """
         url = upload_url(config.LUFTDATEN_URL,
                          have_ssl=False if self._plain_http else None)
         try:
@@ -377,6 +401,7 @@ class Recorder(threading.Thread):
             return post_json(upload_url(url, have_ssl=False), data, headers)
 
     def _mode(self):
+        """Der aktive Modus laut AppState oder None."""
         if self._state.recording:
             return MODE_TRIP
         if self._state.local:
@@ -393,11 +418,12 @@ class Recorder(threading.Thread):
         sonst bis zu STAT_INT Sekunden lang den Start einer Messfahrt
         verschluckt.
 
-        Gegen eine feste Deadline gewartet, nicht in nominalen Schritten
-        heruntergezaehlt: jeder Event.wait() kostet etwas Timer-Overhead,
-        der sich sonst aufaddiert und das Messintervall verschiebt.
+        Gewartet wird gegen eine feste Deadline statt in Schritten
+        herunterzuzaehlen: jeder Event.wait() kostet etwas Overhead, der
+        sich sonst aufaddiert und das Messintervall verschiebt.
 
-        Liefert True, wenn vorzeitig abgebrochen wurde.
+        Liefert True, wenn vorzeitig abgebrochen wurde (Beenden oder
+        Moduswechsel).
         """
         deadline = _now() + seconds
         while True:
@@ -412,6 +438,12 @@ class Recorder(threading.Thread):
 
     # -- Hauptschleife ------------------------------------------------
     def _run_once(self):
+        """Ein Durchlauf der Hauptschleife, je nach Modus:
+
+        Messfahrt/lokal: KML_INT warten, dann einen Messpunkt schreiben.
+        Stationaer: hochladen, dann STAT_INT warten. Kein Modus: eigene
+        Hinweise wegraeumen und einen Tick warten.
+        """
         mode = self._mode()
         # Auch ein direkter Wechsel Messfahrt <-> lokal ohne Stop
         # braucht neue Dateien.

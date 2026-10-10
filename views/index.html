@@ -3,17 +3,13 @@
   <head>
     <title>Mobiler Feinstaubsensor</title>
     <meta http-equiv="content-type" content="text/html; charset=utf-8">
-    <!-- jQuery nur einmal und lokal. Vorher wurde zusaetzlich jQuery 1.4.2
-         per http:// von googleapis geladen (Mixed Content, und ohne Netz
-         gar nicht) und jquery.mobile-1.4.5.css faelschlich als <script>
-         eingebunden. jQuery Mobile lag ohnehin nur als CSS vor -- das
-         zugehoerige JS war nie im Repo -- und ist entfernt. -->
+    <!-- Bibliotheken liegen lokal in /static, damit die Seite auch ohne
+         Internet funktioniert -- unterwegs gibt es oft kein Netz. -->
     <script type="text/javascript" src="/static/jquery-1.8.2.min.js"></script>
     <script type="text/javascript" src="/static/Chart.min.js"></script>
     <script type="text/javascript">
-      // Leer = relative URLs. Vorher stand hier http://localhost:8080 fest
-      // verdrahtet, wodurch die Seite von einem anderen Geraet im WLAN
-      // nicht funktionierte.
+      // Leer = relative URLs. So passt die Seite zu jeder Adresse und jedem
+      // Port des Servers (SDS011_HOST, SDS011_PORT).
       var $SCRIPT_ROOT = '';
     </script>
   </head>
@@ -24,22 +20,22 @@
       refreshInterval = 1000;
 
       // Buttons aus dem Serverzustand ableiten, nicht aus dem letzten
-      // Klick -- nach einem Reload stimmte die Anzeige sonst nicht mehr.
-      // Ueber eine CSS-Klasse statt ueber prop('disabled'): an einem
-      // <div> ist disabled nur eine JavaScript-Eigenschaft, sie ist im
-      // DOM nicht sichtbar und veraendert die Darstellung nicht.
+      // Klick, sonst stimmt die Anzeige nach einem Reload nicht.
+      // Gesperrt wird ueber die CSS-Klasse 'off', nicht ueber
+      // prop('disabled'): die Buttons sind <div>-Elemente, dort hat
+      // disabled keine sichtbare Wirkung.
       function setEnabled(selector, enabled) {
         $(selector).toggleClass('off', !enabled)
                    .attr('aria-disabled', enabled ? 'false' : 'true');
       }
 
       function applyMode(data) {
-        // Ohne verbundenen Sensor entstuenden Dateien voller Nullen --
-        // und Nullen sehen aus wie eine echte Messung. Stoppen bleibt
-        // immer moeglich, auch wenn die Verbindung unterwegs abreisst.
+        // Starten nur mit verbundenem Sensor, sonst entstehen Dateien voller
+        // Nullen, die wie echte Messwerte aussehen. Stoppen geht immer,
+        // auch wenn die Verbindung unterwegs abreisst.
         var ready = (data.connection === 'verbunden');
-        // Die drei Modi schliessen sich aus: was laeuft, sperrt die
-        // Startknoepfe der anderen.
+        // Die drei Modi schliessen sich aus: laeuft einer, sind alle
+        // Startknoepfe gesperrt. Der Server prueft das zusaetzlich.
         var busy = data.recording || data.local || data.stationary;
         setEnabled("#startBtn", ready && !busy);
         setEnabled("#stoppBtn", data.recording);
@@ -96,7 +92,8 @@
         }
       }
 
-      // Ob die Position aktuell ist oder seit Minuten stehen geblieben.
+      // Zeigt, ob die GPS-Position aktuell ist oder wie alt sie ist. Die
+      // Schwelle gps_max_age kommt vom Server (config.GPS_MAX_AGE).
       function showGps(data) {
         var box = $('#echogps');
         var age = data.gps_age;
@@ -137,8 +134,8 @@
             addData( myChart, "", data.pm_10, data.pm_25 );
           },
           error: function() {
-            // Ohne diesen Zweig blieb die Anzeige beim letzten Wert
-            // stehen, wenn der Server weg war.
+            // Ohne diesen Hinweis bliebe die Anzeige kommentarlos beim
+            // letzten Wert stehen, wenn der Server nicht mehr antwortet.
             $('#echoerror').text("Keine Verbindung zur Messanwendung.");
           }
         });
@@ -146,9 +143,9 @@
 
       function periodicRefresh() {
         refreshStatus();
-        // Handle merken: sonst kann startPeriodicRefresh() die laufende
-        // Kette nicht abbrechen und jede Aenderung der Aktualisierungs-
-        // rate startet eine zusaetzliche Kette, die nie endet.
+        // Handle merken, damit startPeriodicRefresh() die laufende Kette
+        // abbrechen kann. Sonst startet jede Aenderung der Rate eine
+        // weitere Kette, die nie endet.
         refreshTimer = setTimeout(periodicRefresh, refreshInterval);
       };
 
@@ -161,8 +158,10 @@
 	      refreshTimer = setTimeout(periodicRefresh, refreshInterval);
 	    }
 
-      // Ein Modus-Button: anstossen und danach den Serverzustand
-      // uebernehmen. applyMode() setzt die Buttons, nicht der Handler.
+      // Button, der einen Befehl ohne Parameter an den Server schickt und
+      // danach den Serverzustand neu liest. Gesperrt/frei setzen
+      // applyMode() und applyConnection() aus diesem Zustand, nicht der
+      // Klick-Handler.
       function modeButton(id, path) {
         $(id).click(function() {
           if ($(this).hasClass('off')) { return; }
@@ -259,20 +258,19 @@ strong { text-align: center; }
 .stretched { align-items: stretch; justify-content: space-between; align-content: stretch; }
 
 .btn { cursor: pointer; display: inline-block; padding: 0.5em; border-radius: 10%; text-align: center; color: #BBE1FA }
-/* Gesperrter Button. Die Buttons sind <div>-Elemente, an denen
-   die disabled-Eigenschaft keinerlei Darstellungswirkung hat --
-   der Zustand war deshalb unsichtbar. */
+/* Gesperrter Button (siehe setEnabled()). */
 .btn.off { opacity: 0.3; cursor: default; }
-/* Verbindungszustand. Ohne diese Anzeige war nicht unterscheidbar,
-   ob der Sensor fehlt oder ob er 0 ug/m3 misst. */
+/* Verbindungszustand des Sensors (an/warte/aus). Daran sieht man, ob
+   ein Wert von 0 ug/m3 echt ist oder der Sensor fehlt. */
 .conn { text-align: center; padding: 0.3em; margin-top: 0.4em; border-radius: 6px; }
 .conn.an { background-color: #14532d; color: #86efac; }
 .conn.aus { background-color: #3f3f46; color: #d4d4d8; }
 .conn.warte { background-color: #78350f; color: #fcd34d; }
 .select { width: 33.3%; }
 .hint { font-size: 0.6em; color: #7fa8c4; margin-bottom: 0.4em; }
-/* Der stationaere Modus ist der einzige, der Daten aus der Hand
-   gibt -- das muss man sehen, bevor man drauftippt. */
+/* Warnhinweis: GPS ohne aktuelles Signal und der stationaere Modus. Er
+   laedt als einziger Modus Daten oeffentlich hoch -- das soll man vor
+   dem Antippen sehen. */
 .warn { font-size: 0.6em; color: #fcd34d; background-color: #78350f;
         padding: 0.5em; border-radius: 6px; margin-bottom: 0.5em; }
 .place { width: 100%; box-sizing: border-box; font-size: 0.8em;
@@ -347,10 +345,8 @@ select {
 	<canvas id="mycanvas"></canvas>
       </div>
       <script>
-	// Adding and removing data is supported by changing the data array.
-	// Bei 1 Sekunde Aktualisierungsrate kaemen pro Stunde 3600 Punkte
-	// zusammen; der Chart wurde mit der Zeit immer langsamer. Deshalb ein
-	// gleitendes Fenster.
+	// Gleitendes Fenster: bei 1 s Aktualisierungsrate kaemen pro Stunde
+	// 3600 Punkte zusammen, und der Chart wuerde immer langsamer.
 	var MAX_POINTS = 300;
 
 	function addData(chart, label, data1, data2) {
@@ -362,11 +358,11 @@ select {
 			    chart.data.datasets[0].data.shift();
 			    chart.data.datasets[1].data.shift();
 			  }
-		  chart.update(0); // 0 = no animation
+		  chart.update(0); // 0 = ohne Animation
 		}
 
 
-	// create initial empty chart
+	// Leerer Chart; gefuellt wird er aus refreshStatus() ueber addData().
 	var ctx_live = document.getElementById("mycanvas");
 	Chart.defaults.global.defaultFontSize = 30;
 	var myChart = new Chart(ctx_live, {
@@ -431,9 +427,6 @@ select {
 			  }
 		});
 
-	// Hier stand ein setInterval, das alle 3 Sekunden auf ein nicht
-	// existierendes 'data' zugriff und einen ReferenceError warf. Der
-	// Chart wird bereits aus refreshStatus() gefuettert.
       </script>
       <br />
       <hline></hline>

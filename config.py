@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Konfiguration. Importiert nichts aus dem Projekt.
+"""Einstellungen der App und Erkennung der Laufumgebung.
 
-Laeuft unter Python 2.7 (QPython 2) und Python 3.x (QPython 3L),
-deshalb os.path statt pathlib.
+Der Block zwischen START und ENDE DER KONFIGURATIONSOPTIONEN ist zum
+Anpassen gedacht. Darunter stehen die
+abgeleiteten Pfade und Hilfsfunktionen: Android oder PC, echte oder
+simulierte Hardware, Wahl des Ausgabeverzeichnisses. Importiert nichts
+aus dem Projekt, damit jedes Modul es ohne Zirkelimport laden kann.
+Laeuft unter Python 2.7 und 3, deshalb os.path statt pathlib.
 """
 
 from __future__ import absolute_import
@@ -16,33 +20,40 @@ import os
 # 0 = nur Fehler, 1 = Betriebsmeldungen, 2 = Details, 3 = Protokoll-Debug
 LOG_LEVEL = 1
 
-# Intervall in Sekunden, in dem ein Messwert in KML/CSV geschrieben wird.
+# Takt in Sekunden, in dem Messfahrt und lokale Messung einen Messpunkt
+# schreiben (KML/CSV).
 KML_INT = 5
 # Intervall in Sekunden, in dem die GPS-Position neu gelesen wird.
 GPS_INT = 5
-# Kommt so viele Sekunden keine neue Position, wird das GPS bei Android
-# ab- und wieder angemeldet. Bleibt es stumm, verdoppelt sich die
-# Wartezeit bis zu GPS_RESTART_MAX.
+# Kommt so viele Sekunden keine neue Position, wird das GPS ab- und
+# wieder angemeldet (wirksam nur unter Android). Bleibt es stumm,
+# verdoppelt sich die Wartezeit bis zu GPS_RESTART_MAX.
 GPS_RESTART_AFTER = 60
 GPS_RESTART_MAX = 600
-# Aelter darf die letzte neue GPS-Position nicht sein, um in Spur und
-# CSV zu landen. Sonst bleiben die Koordinaten leer und die Spur beginnt
-# danach neu -- statt einer geraden Linie von der alten Position.
+# Hoechstalter in Sekunden der letzten neuen GPS-Position. Ist sie
+# aelter, bleiben die Koordinaten in CSV und Spur leer, und die Spur
+# beginnt danach neu statt mit einer geraden Linie von der alten
+# Position. Dieselbe Schwelle gilt fuer die Anzeige "GPS: aktuell".
 GPS_MAX_AGE = 15
 # Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus.
 STAT_INT = 240
-# Aelter darf ein Messwert nicht sein, um aufgezeichnet oder
-# hochgeladen zu werden. Der Sensor sendet etwa einmal pro Sekunde --
-# bleibt er laenger stumm, ist die Verbindung weg.
+# Hoechstalter in Sekunden eines Messwerts, der aufgezeichnet oder
+# hochgeladen wird. Der Sensor sendet etwa einmal pro Sekunde -- bleibt
+# er laenger stumm, ist die Verbindung weg.
 MAX_MEASUREMENT_AGE = 10
 
+# UUID des Serial Port Profile (SPP), ueber das Android die Verbindung
+# zum Bluetooth-Modul aufbaut.
 SSP_UUID = '00001101-0000-1000-8000-00805F9B34FB'
-# RFCOMM-Kanal auf dem Desktop. HC05/HC06 bieten SPP ueblicherweise
-# auf Kanal 1 an; die Standardbibliothek kann keine Dienstsuche.
+# RFCOMM-Kanal am PC. Fest eingetragen, weil die Standardbibliothek
+# keine Dienstsuche kann; HC05/HC06 bieten SPP ueblicherweise auf
+# Kanal 1 an.
 RFCOMM_CHANNEL = 1
 # Bluetooth MAC-Adresse des HC05/HC06-Moduls, welches die Verbindung
 # zum SDS011-Sensor herstellt.
 SDS011_BLUETOOTH_DEVICE_ID = '00:14:03:05:59:17'
+# Sensor-ID fuer den Upload zu sensor.community (Header X-Sensor) im
+# stationaeren Modus. Karte:
 # https://deutschland.maps.sensor.community/#16/51.4385/6.7882
 XSENSOR = 'raspi-00000000a5c85ba8'
 LUFTDATEN_URL = 'https://api.luftdaten.info/v1/push-sensor-data/'
@@ -70,8 +81,11 @@ STATICDIR = os.path.join(BASEDIR, 'static')
 
 
 def ensure_outdir():
-    """Legt das Ausgabeverzeichnis an. os.makedirs(exist_ok=) gibt es
-    unter Python 2 nicht."""
+    """Legt das Ausgabeverzeichnis an und liefert seinen Pfad.
+
+    Ohne os.makedirs(exist_ok=), das es unter Python 2 nicht gibt; der
+    zweite isdir-Test faengt ab, dass es gerade jemand anders anlegt.
+    """
     if not os.path.isdir(OUTDIR):
         try:
             os.makedirs(OUTDIR)
@@ -89,22 +103,26 @@ def http_host():
 def http_port():
     """Port des Webservers, per SDS011_PORT ueberschreibbar.
 
-    Unter Windows koennen sich dank SO_REUSEADDR mehrere Prozesse an
-    denselben Port binden, ohne dass der zweite einen Fehler bekommt --
-    Testlaeufe treffen sonst versehentlich eine alte Instanz.
+    Testlaeufe sollten einen eigenen Port waehlen: Unter Windows binden
+    sich dank SO_REUSEADDR mehrere Prozesse ohne Fehler an denselben
+    Port, und ein Test landet sonst unbemerkt bei einer alten Instanz.
     """
     return int(os.environ.get('SDS011_PORT') or HTTP_PORT)
 
 
 def on_android():
-    """True, wenn wir unter QPython auf einem Geraet laufen."""
+    """True unter Android, erkannt an ANDROID_ROOT, das Android jedem
+    Prozess setzt."""
     return os.environ.get('ANDROID_ROOT') is not None
 
 
 def is_writable_dir(path):
     """Legt path bei Bedarf an und prueft mit einer Probedatei, ob
-    geschrieben werden darf. os.access() luegt unter Android, wenn der
-    Speicher per Berechtigung gesperrt ist."""
+    geschrieben werden darf. Liefert True oder False.
+
+    Nicht os.access(): das meldet unter Android Schreibrecht, auch wenn
+    der Speicher per Berechtigung gesperrt ist.
+    """
     probe = os.path.join(path, '.schreibtest')
     try:
         if not os.path.isdir(path):
@@ -119,7 +137,11 @@ def is_writable_dir(path):
 
 def choose_outdir(android=None, preferred=None):
     """Ausgabeverzeichnis: unter Android ANDROID_OUTDIR, sofern
-    beschreibbar, sonst output/ neben dem Programm."""
+    beschreibbar, sonst output/ neben dem Programm.
+
+    android und preferred ersetzen fuer Tests die Erkennung bzw.
+    ANDROID_OUTDIR.
+    """
     if android is None:
         android = on_android()
     if preferred is None:
@@ -142,6 +164,8 @@ def use_fake_hardware():
     return value.strip().lower() not in ('', '0', 'false', 'no')
 
 
-# Erst hier, weil choose_outdir() die Funktionen oben braucht.
+# Erst hier, weil choose_outdir() die Funktionen oben braucht. Wird
+# einmal beim Import festgelegt; unter Android legt die Pruefung
+# ANDROID_OUTDIR dabei schon an.
 OUTDIR = choose_outdir()
 LOGFILE = os.path.join(OUTDIR, 'logfile.txt')

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Gemeinsamer Zustand zwischen Mess-Threads und Webserver.
 
-Ersetzt die frueheren Modul-Globals. Alle Zugriffe laufen ueber einen
-Lock, weil GPS-Thread, Sensor-Thread, Aufzeichnungs-Thread und die
-Bottle-Request-Threads gleichzeitig darauf zugreifen.
+GPS-, Sensor- und Aufzeichnungs-Thread schreiben hinein; die Request-
+Threads des Webservers lesen ihn, schalten die Modi und setzen den
+Verbindungswunsch. Messwerte, Position, Anzeige und Verbindung laufen
+deshalb ueber einen Lock. Dazu die Zeithelfer utcnow und monotonic fuer
+Python 2 und 3.
 """
 
 from __future__ import absolute_import
@@ -13,14 +15,13 @@ import threading
 import time
 
 
-# datetime.timezone gibt es erst ab Python 3.2; datetime.utcnow() ist
-# ab 3.12 abgekuendigt. Einmal beim Import entscheiden, was benutzt wird.
+# datetime.timezone gibt es erst ab Python 3.2, datetime.utcnow() ist
+# ab 3.12 abgekuendigt. Darum beim Import entscheiden, was benutzt wird.
 _UTC = getattr(datetime, 'timezone', None)
 
 
-# Verbindungszustand des Sensors. Frueher war nicht unterscheidbar,
-# ob der Sensor fehlt oder 0 ug/m3 misst -- beides sah in der
-# Oberflaeche gleich aus.
+# Verbindungszustand des Sensors. Eigene Werte, damit die Oberflaeche
+# "Sensor fehlt" von "Sensor misst 0 ug/m3" unterscheiden kann.
 CONN_DISCONNECTED = u'getrennt'
 CONN_CONNECTING = u'verbinde'
 CONN_CONNECTED = u'verbunden'
@@ -28,7 +29,8 @@ CONN_RETRYING = u'wartet auf nächsten Versuch'
 
 
 # Fuer Zeitabstaende: springt nicht, wenn die Uhr gestellt wird.
-# time.monotonic gibt es erst ab Python 3.3.
+# time.monotonic gibt es erst ab Python 3.3; unter Python 2 bleibt nur
+# time.time, das beim Stellen der Uhr springen kann.
 monotonic = getattr(time, 'monotonic', time.time)
 
 
@@ -40,11 +42,13 @@ def utcnow():
 
 
 class AppState(object):
+    """Thread-sicherer Zustand der App; main.py legt genau eine Instanz an."""
 
     def __init__(self):
         self._lock = threading.Lock()
-        # Laufzeit-Flaggen. 'recording' hiess frueher 'run' und
-        # kollidierte mit bottle.run.
+        # Laufzeit-Flaggen: einfache Attribute ohne Lock (bool-Zuweisungen
+        # sind atomar). Dass immer nur ein Modus laeuft, stellt webapp.py
+        # mit einem eigenen Lock sicher.
         # Drei Modi, die sich gegenseitig ausschliessen:
         #   recording  -- Messfahrt: KML-Spur und CSV, braucht GPS
         #   local      -- Lokale Messung an einem Ort: nur CSV,
@@ -53,8 +57,10 @@ class AppState(object):
         self.recording = False
         self.local = False
         self.stationary = False
+        # Solange True, laufen die Threads; shutdown() setzt es auf False.
         self.sensing = True
-        # Signal zum Beenden; ersetzt blockierende time.sleep()-Aufrufe.
+        # Signal zum Beenden. Die Threads warten ueber wait() darauf statt
+        # mit time.sleep(), damit das Programm sofort beendet werden kann.
         self.stop_event = threading.Event()
 
         self._pm_10 = 0.0
@@ -71,9 +77,9 @@ class AppState(object):
         self._status_text = u'inaktiv'
         self._error_msg = u''
 
-        # Verbindung. 'wanted' ist der Wunsch des Benutzers, der Rest
-        # beschreibt, wo der Verbindungsaufbau gerade steht. Das
-        # Verbinden ist explizit, das Verbunden-bleiben automatisch.
+        # Verbindung. connection_wanted ist der Wunsch des Benutzers, der
+        # Rest beschreibt, wo der Verbindungsaufbau gerade steht. Aufbau
+        # und Wiederverbinden erledigt der SensorReader.
         self.connection_wanted = False
         self._connection = CONN_DISCONNECTED
         self._connection_error = u''
@@ -84,6 +90,7 @@ class AppState(object):
 
     # -- Messwerte ----------------------------------------------------
     def set_measurement(self, pm_25, pm_10, at=None):
+        """Neuen Messwert speichern; at (monotonic) nur fuer Tests."""
         with self._lock:
             self._pm_25 = pm_25
             self._pm_10 = pm_10
@@ -104,6 +111,7 @@ class AppState(object):
         return age if age >= 0 else None
 
     def measurement(self):
+        """Letzter Messwert als (pm_25, pm_10); 0.0, solange keiner kam."""
         with self._lock:
             return (self._pm_25, self._pm_10)
 
@@ -112,11 +120,13 @@ class AppState(object):
         with self._lock:
             self._lat = lat
             self._lon = lon
-            # Wurde frueher nur einmal beim Thread-Start gesetzt, so dass
-            # alle KML-Zeitstempel die Startzeit trugen.
+            # Zeitstempel bei jeder Position neu setzen: die KML-Spur
+            # braucht die Zeit jedes einzelnen Punkts.
             self._utc = utc if utc is not None else utcnow()
 
     def position(self):
+        """(lat, lon, utc) der letzten Position; ob sie aktuell ist,
+        sagt gps_age()."""
         with self._lock:
             return (self._lat, self._lon, self._utc)
 
@@ -125,7 +135,7 @@ class AppState(object):
             self._gps_available = bool(available)
 
     def mark_gps_fix(self, at=None):
-        """Eine neue Position ist eingetroffen."""
+        """Eine neue Position ist eingetroffen; Grundlage fuer gps_age()."""
         with self._lock:
             self._gps_fix_at = monotonic() if at is None else at
 
@@ -162,6 +172,9 @@ class AppState(object):
 
     # -- Verbindung ---------------------------------------------------
     def set_connection(self, conn_state, error=None):
+        """Verbindungszustand setzen. Ohne error bleibt der alte
+        Fehlertext stehen, ausser bei CONN_CONNECTED: dann wird er
+        geloescht."""
         with self._lock:
             self._connection = conn_state
             if error is not None:
@@ -170,6 +183,7 @@ class AppState(object):
                 self._connection_error = u''
 
     def connection(self):
+        """(Zustand, Fehlertext); Zustand ist eine der CONN_-Konstanten."""
         with self._lock:
             return (self._connection, self._connection_error)
 
@@ -227,12 +241,9 @@ class AppState(object):
         return self.stop_event.wait(seconds)
 
     def shutdown(self):
+        """Verbindungswunsch und alle Modi zuruecknehmen, die Threads
+        anhalten und per stop_event aus ihren Wartezeiten wecken."""
         self.connection_wanted = False
-        # Drei Modi, die sich gegenseitig ausschliessen:
-        #   recording  -- Messfahrt: KML-Spur und CSV, braucht GPS
-        #   local      -- Lokale Messung an einem Ort: nur CSV,
-        #                 kein GPS noetig, KEIN Upload
-        #   stationary -- Upload zu luftdaten.info
         self.recording = False
         self.local = False
         self.stationary = False

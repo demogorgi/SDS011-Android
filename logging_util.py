@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Logging. Importiert nur config, damit hier nie ein Zirkelimport
-entstehen kann (kml.py und main.py haengen beide dran).
+"""Logdatei und Textumwandlung fuer alle Module der App.
 
-Wichtig: write_log() hat keine Nebenwirkung auf die Fehleranzeige im
-Frontend mehr. Fehler, die der Benutzer sehen soll, laufen ueber
-AppState.report_error().
+Importiert nur config, weil fast jedes Modul hier importiert und sonst
+Zirkelimporte entstehen. write_log() schreibt nur in die Datei; Fehler,
+die der Benutzer sehen soll, laufen ueber AppState.report_error().
 """
 
 from __future__ import absolute_import
@@ -27,7 +26,7 @@ _level = config.LOG_LEVEL
 
 
 def configure(logfile=None, level=None):
-    """Ziel und Schwelle umstellen -- benutzt von den Tests."""
+    """Stellt Logdatei und Schwelle um -- fuer die Tests."""
     global _logfile, _level
     if logfile is not None:
         _logfile = logfile
@@ -40,8 +39,12 @@ def get_level():
 
 
 def to_text(value):
-    """Macht aus beliebigem Input Text. Unter Python 2 ist str == bytes,
-    deshalb der Umweg ueber decode()."""
+    """Macht aus beliebigem Wert Text (unicode bzw. str).
+
+    Unter Python 2 ist str gleich bytes: unicode(exc) scheitert dort an
+    Exceptions, deren Text Umlaute als Bytes enthaelt. Dafuer der Umweg
+    ueber str(...).decode().
+    """
     if isinstance(value, _TEXT):
         return value
     if isinstance(value, bytes):
@@ -62,12 +65,11 @@ def previous_logfile(path=None):
 
 
 def rotate_logfile():
-    """Hebt das Log des letzten Laufs auf, statt es wegzuwerfen.
+    """Benennt das Log des letzten Laufs um (siehe previous_logfile),
+    damit es nach einem Neustart noch lesbar ist. Wird von main.py beim
+    Start aufgerufen.
 
-    Frueher wurde beim Start geloescht -- wer nach einer Messfahrt in
-    der App nachsehen wollte, was schiefgelaufen war, hatte das Log
-    durch den Neustart bereits vernichtet. Eine Generation reicht und
-    laesst den Speicher des Geraets in Ruhe.
+    Eine Generation reicht und schont den Speicher des Geraets.
     """
     config.ensure_outdir()
     if not os.path.exists(_logfile):
@@ -89,10 +91,11 @@ def rotate_logfile():
 
 
 def write_log(level, msg):
-    """Schreibt eine Logzeile, wenn level <= LOG_LEVEL.
+    """Schreibt eine Logzeile, wenn level <= LOG_LEVEL (0 = Fehler,
+    hoeher = ausfuehrlicher).
 
-    Darf niemals eine Exception nach aussen geben -- ein kaputtes Log
-    soll die Messung nicht anhalten.
+    Thread-sicher. Gibt nie eine Exception weiter: ein kaputtes Log darf
+    die Messung nicht anhalten.
     """
     if level > _level:
         return
