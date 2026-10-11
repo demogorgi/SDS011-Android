@@ -4,21 +4,26 @@
 from __future__ import absolute_import
 
 import json
+import math
 import os
+import re
 import sys
+import time
 import unittest
 from io import BytesIO
+from xml.etree import ElementTree
 
 import config
 import webapp
 from state import AppState
 
 
-def call(app, path, method='GET'):
-    """Ruft die WSGI-App direkt auf und liefert (status, body-dict).
+def call_raw(app, path, method='GET', **extra):
+    """Ruft die WSGI-App direkt auf und liefert (status, Koepfe, body).
 
     Query-String gehoert nach QUERY_STRING, nicht in PATH_INFO -- sonst
-    findet bottle die Route nicht.
+    findet bottle die Route nicht. extra landet im environ (etwa
+    HTTP_IF_MODIFIED_SINCE). Die Koepfe als dict mit kleinen Namen.
     """
     if '?' in path:
         path, query = path.split('?', 1)
@@ -35,17 +40,32 @@ def call(app, path, method='GET'):
         'wsgi.errors': sys.stderr,
         'wsgi.url_scheme': 'http',
     }
+    environ.update(extra)
     captured = {}
 
     def start_response(status, headers, exc_info=None):
         captured['status'] = status
+        captured['headers'] = {name.lower(): value for name, value in headers}
 
-    body = b''.join(app(environ, start_response))
+    result = app(environ, start_response)
+    try:
+        body = b''.join(result)
+    finally:
+        # Wie ein WSGI-Server: schliesst die Datei hinter /static/.
+        if hasattr(result, 'close'):
+            result.close()
+    return captured['status'], captured['headers'], body
+
+
+def call(app, path, method='GET'):
+    """Wie call_raw, liefert aber (status, body-dict); ist der Body kein
+    JSON, die Bytes."""
+    status, _headers, body = call_raw(app, path, method)
     try:
         payload = json.loads(body.decode('utf-8'))
     except ValueError:
         payload = body
-    return captured['status'], payload
+    return status, payload
 
 
 class IndexFromOtherDirectoryTest(unittest.TestCase):
@@ -151,7 +171,12 @@ class RouteTest(unittest.TestCase):
                     'recording', 'stationary', 'connection',
                     'connection_error', 'connection_wanted',
                     'device', 'device_name', 'gps_available', 'gps_age',
-                    'gps_max_age'):
+                    'gps_max_age', 'local', 'place',
+                    # Fuer die Oberflaeche mit Server-Diagramm:
+                    'interval', 'intervals', 'measurement_age',
+                    'pm_25_level', 'pm_10_level', 'history_rev',
+                    'next_point_in', 'session', 'upload', 'outdir',
+                    'stat_interval'):
             self.assertIn(key, payload)
         self.assertEqual(payload['lat'], '51.43850')
         self.assertEqual(payload['pm_10'].strip(), '45.6')
@@ -409,6 +434,298 @@ class ConnectionRouteTest(unittest.TestCase):
         call(self.app, '/connect/')
         self.state.shutdown()
         self.assertFalse(self.state.connection_wanted)
+
+
+class IntervalRouteTest(unittest.TestCase):
+    """Das Messintervall aus der Oberflaeche: sofort im AppState und in
+    der Einstellungsdatei, damit es einen Neustart ueberlebt."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        self.path = os.path.join(tmp, 'einstellungen.json')
+        saved = config.SETTINGS_FILE
+        config.SETTINGS_FILE = self.path
+        self.addCleanup(setattr, config, 'SETTINGS_FILE', saved)
+        self.state = AppState(record_interval=5)
+        self.app = webapp.create_app(self.state)
+
+    def test_valid_interval_is_set_and_saved(self):
+        import settings
+        status, payload = call(self.app, '/interval/?seconds=30')
+        self.assertTrue(status.startswith('200'))
+        self.assertEqual(payload, {'value': u'Messintervall: 30 s.', 'interval': 30})
+        self.assertEqual(self.state.record_interval(), 30)
+        self.assertEqual(settings.load(), {'record_interval': 30})
+
+    def test_minutes_are_named_as_such(self):
+        status, payload = call(self.app, '/interval/?seconds=300')
+        self.assertEqual(payload['value'], u'Messintervall: 5 min.')
+
+    def test_other_settings_are_kept(self):
+        import settings
+        settings.save({'record_interval': 10, 'anderes': u'bleibt'})
+        call(self.app, '/interval/?seconds=60')
+        self.assertEqual(settings.load(), {'record_interval': 60, 'anderes': u'bleibt'})
+
+    def test_invalid_interval_is_refused(self):
+        for query in ('seconds=7', 'seconds=abc', 'seconds=', '', 'seconds=-5',
+                      'seconds=30.5'):
+            status, payload = call(self.app, '/interval/?' + query)
+            self.assertTrue(status.startswith('200'), query)
+            self.assertTrue(payload.get('refused'), query)
+            self.assertEqual(payload['value'], u'Ungültiges Messintervall.')
+            self.assertEqual(payload['interval'], 5, query)
+        self.assertEqual(self.state.record_interval(), 5)
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_unsaved_interval_still_applies(self):
+        """Kein Schreibrecht: das Intervall gilt trotzdem, nur nicht nach
+        einem Neustart -- und die Antwort sagt das."""
+        config.SETTINGS_FILE = os.path.join(self.path, 'fehlt', 'x.json')
+        status, payload = call(self.app, '/interval/?seconds=10')
+        self.assertFalse(payload.get('refused'))
+        self.assertEqual(self.state.record_interval(), 10)
+        self.assertIn(u'nicht dauerhaft gespeichert', payload['value'])
+
+    def test_status_shows_interval_and_choices(self):
+        call(self.app, '/interval/?seconds=60')
+        status, payload = call(self.app, '/status/')
+        self.assertEqual(payload['interval'], 60)
+        self.assertEqual(payload['intervals'], list(config.RECORD_INT_CHOICES))
+
+
+class HistoryRouteTest(unittest.TestCase):
+
+    def setUp(self):
+        import time
+        self.now = time.time()
+        self.state = AppState()
+        self.state.add_history_point(self.now - 7200, 1.0, 2.0, 5, False)
+        self.state.add_history_point(self.now - 20, 3.0, 4.0, 5, True)
+        self.state.add_history_point(self.now - 10, 5.0, 6.0, 30, True)
+        self.app = webapp.create_app(self.state)
+
+    def test_all_points_without_range(self):
+        for path in ('/history/', '/history/?range=0', '/history/?range=xyz'):
+            status, payload = call(self.app, path)
+            self.assertTrue(status.startswith('200'), path)
+            self.assertEqual(len(payload['points']), 3, path)
+        self.assertEqual(payload['rev'], 3)
+        self.assertEqual(payload['interval'], 5)
+        self.assertAlmostEqual(payload['now'], self.now, delta=5)
+        first = payload['points'][0]
+        self.assertAlmostEqual(first[0], self.now - 7200, delta=0.01)
+        self.assertEqual(first[1:], [1.0, 2.0, 5, 0])
+        self.assertEqual(payload['points'][2][1:], [5.0, 6.0, 30, 1])
+
+    def test_range_limits_the_points(self):
+        status, payload = call(self.app, '/history/?range=600')
+        self.assertEqual([p[1] for p in payload['points']], [3.0, 5.0])
+
+    def test_empty_history(self):
+        status, payload = call(webapp.create_app(AppState()), '/history/')
+        self.assertEqual(payload['points'], [])
+        self.assertEqual(payload['rev'], 0)
+
+
+class StaticFilesTest(unittest.TestCase):
+    """Skript und Stylesheet duerfen nach einem Update nicht ungefragt aus
+    dem Browser-Cache kommen, sonst laeuft altes app.js zum neuen
+    Template."""
+
+    def setUp(self):
+        self.app = webapp.create_app(AppState())
+
+    def test_static_files_are_revalidated(self):
+        for name in ('app.js', 'app.css'):
+            status, headers, body = call_raw(self.app, '/static/' + name)
+            self.assertTrue(status.startswith('200'), (name, status))
+            self.assertTrue(body, name)
+            self.assertEqual(headers.get('cache-control'), 'no-cache', name)
+            # Darauf beruht die billige Nachfrage.
+            self.assertIn('last-modified', headers, name)
+
+    def test_not_modified_keeps_the_header(self):
+        """Die Nachfrage endet meist mit 304 -- auch das muss den Kopf
+        tragen, sonst cacht der Browser ab dann wieder heuristisch."""
+        status, headers, body = call_raw(self.app, '/static/app.js')
+        status, headers, body = call_raw(
+            self.app, '/static/app.js',
+            HTTP_IF_MODIFIED_SINCE=headers['last-modified'])
+        self.assertTrue(status.startswith('304'), status)
+        self.assertEqual(headers.get('cache-control'), 'no-cache')
+
+    def test_missing_file(self):
+        status, headers, body = call_raw(self.app, '/static/gibt-es-nicht.js')
+        self.assertTrue(status.startswith('404'), status)
+        self.assertEqual(headers.get('cache-control'), 'no-cache')
+
+
+class _ShiftedClock(object):
+    """Ersatz fuer das Modul time in webapp: die Uhr laeuft offset
+    Sekunden vor, localtime bleibt das echte."""
+
+    def __init__(self, offset):
+        self.offset = offset
+
+    def time(self):
+        return time.time() + self.offset
+
+    def localtime(self, *args):
+        return time.localtime(*args)
+
+
+class ChartRouteTest(unittest.TestCase):
+    """/chart.svg und die Meldung im leeren Diagramm."""
+
+    def setUp(self):
+        self.state = AppState(record_interval=900)
+        self.app = webapp.create_app(self.state)
+
+    def label(self):
+        """Die Beschriftung des SVG; sie enthaelt die Meldung."""
+        status, headers, body = call_raw(self.app, '/chart.svg?range=3600&w=400&h=240')
+        self.assertTrue(status.startswith('200'), status)
+        self.assertEqual(headers['content-type'], 'image/svg+xml; charset=utf-8')
+        self.assertEqual(headers.get('cache-control'), 'no-store')
+        root = ElementTree.fromstring(body)
+        self.assertEqual(root.get('width'), '400')
+        return root.get('aria-label')
+
+    def test_without_sensor(self):
+        self.state.set_next_point_at(time.time() + 870)
+        self.assertIn(u'Kein Sensor verbunden', self.label())
+
+    def test_connected_names_the_time_of_the_first_point(self):
+        """Die Seite laedt das Bild bis zu einer Minute lang nicht neu.
+        Ein "in 870 s" stuende so lange still -- die Uhrzeit nicht."""
+        due = time.time() + 870
+        self.state.set_connection(u'verbunden')
+        self.state.set_next_point_at(due)
+        label = self.label()
+        clock = time.strftime('%H:%M:%S', time.localtime(math.ceil(due)))
+        self.assertIn(u'Erster Mittelwert um ' + clock, label)
+        self.assertIsNone(re.search(r'in \d+ s', label), label)
+
+    def test_message_does_not_age(self):
+        """Dasselbe Bild eine Minute spaeter: die Meldung stimmt noch."""
+        self.state.set_connection(u'verbunden')
+        self.state.set_next_point_at(time.time() + 870)
+        first = self.label()
+        try:
+            webapp.time = _ShiftedClock(60)
+            later = self.label()
+        finally:
+            webapp.time = time
+        self.assertIn(u'Erster Mittelwert', first)
+        self.assertEqual(first, later)
+
+    def test_no_first_point_message_once_there_are_points(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_next_point_at(time.time() + 870)
+        self.state.add_history_point(time.time() - 30, 3.0, 4.0, 900, False)
+        self.assertNotIn(u'Erster Mittelwert', self.label())
+
+    def test_no_first_point_message_without_schedule(self):
+        self.state.set_connection(u'verbunden')
+        label = self.label()
+        self.assertNotIn(u'Erster Mittelwert', label)
+        self.assertNotIn(u'Kein Sensor verbunden', label)
+
+
+class StatusFieldsTest(unittest.TestCase):
+    """Die Felder fuer die neue Oberflaeche."""
+
+    def setUp(self):
+        self.state = AppState(record_interval=10)
+        self.app = webapp.create_app(self.state)
+
+    def status(self):
+        status, payload = call(self.app, '/status/')
+        self.assertTrue(status.startswith('200'))
+        return payload
+
+    def test_defaults_without_sensor(self):
+        payload = self.status()
+        self.assertIsNone(payload['measurement_age'])
+        self.assertEqual(payload['pm_25_level'], 'none')
+        self.assertEqual(payload['pm_10_level'], 'none')
+        self.assertEqual(payload['history_rev'], 0)
+        self.assertIsNone(payload['next_point_in'])
+        self.assertIsNone(payload['session'])
+        self.assertIsNone(payload['upload'])
+        self.assertEqual(payload['outdir'], config.OUTDIR)
+        self.assertEqual(payload['stat_interval'], config.STAT_INT)
+        self.assertEqual(payload['interval'], 10)
+
+    def test_levels_follow_the_thresholds(self):
+        self.state.set_measurement(30.0, 45.0)
+        payload = self.status()
+        self.assertEqual(payload['measurement_age'], 0)
+        self.assertEqual(payload['pm_25_level'], 'elevated')
+        self.assertEqual(payload['pm_10_level'], 'elevated')
+        self.state.set_measurement(10.0, 55.0)
+        payload = self.status()
+        self.assertEqual(payload['pm_25_level'], 'good')
+        self.assertEqual(payload['pm_10_level'], 'high')
+
+    def test_stale_value_has_no_level(self):
+        """Nach einem Abbruch bleibt der letzte Wert stehen -- er darf
+        nicht weiter "gut" anzeigen."""
+        from state import monotonic
+        self.state.set_measurement(10.0, 20.0, at=monotonic() - 100)
+        payload = self.status()
+        self.assertEqual(payload['measurement_age'], 100)
+        self.assertEqual(payload['pm_25_level'], 'none')
+        self.assertEqual(payload['pm_10_level'], 'none')
+
+    def test_history_and_next_point(self):
+        import time
+        self.state.add_history_point(time.time(), 1.0, 2.0, 10, False)
+        self.state.set_next_point_at(time.time() + 7.2)
+        payload = self.status()
+        self.assertEqual(payload['history_rev'], 1)
+        self.assertEqual(payload['next_point_in'], 8)
+        # Ein ueberfaelliger Termin wird nicht negativ.
+        self.state.set_next_point_at(time.time() - 3)
+        self.assertEqual(self.status()['next_point_in'], 0)
+
+    def test_session_with_elapsed_and_rounded_means(self):
+        import time
+        started = time.time() - 125
+        self.state.set_session({
+            'mode': 'lokal', 'active': True, 'started': started, 'ended': None,
+            'points': 3, 'avg_pm25': 12.345678, 'avg_pm10': 20.06,
+            'file': u'feinstaub_halle_x.csv', 'place': u'Halle'})
+        session = self.status()['session']
+        self.assertTrue(124 <= session['elapsed'] <= 127, session['elapsed'])
+        self.assertEqual(session['avg_pm25'], 12.3)
+        self.assertEqual(session['avg_pm10'], 20.1)
+        self.assertEqual(session['file'], u'feinstaub_halle_x.csv')
+        self.assertEqual(session['place'], u'Halle')
+        self.assertTrue(session['active'])
+
+    def test_ended_session_keeps_its_duration(self):
+        self.state.set_session({
+            'mode': 'messfahrt', 'active': False, 'started': 1000.0, 'ended': 1600.0,
+            'points': 0, 'avg_pm25': None, 'avg_pm10': None, 'file': u'', 'place': u''})
+        session = self.status()['session']
+        self.assertEqual(session['elapsed'], 600)
+        self.assertIsNone(session['avg_pm25'])
+
+    def test_upload_with_next_in(self):
+        import time
+        self.state.set_upload_info({'last_at': time.time() - 10, 'last_ok': True,
+                                    'last_message': u'ok', 'next_at': time.time() + 229.5})
+        upload = self.status()['upload']
+        self.assertEqual(upload['next_in'], 230)
+        self.assertTrue(upload['last_ok'])
+        self.state.set_upload_info({'last_at': None, 'last_ok': None,
+                                    'last_message': u'', 'next_at': None})
+        self.assertIsNone(self.status()['upload']['next_in'])
 
 
 if __name__ == '__main__':

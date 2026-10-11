@@ -73,7 +73,7 @@ class NoRunNameCollisionTest(unittest.TestCase):
 
         tmp = tempfile.mkdtemp()
         state = AppState()
-        recorder = Recorder(state, outdir=tmp, kml_interval=0.01, tick=0.01)
+        recorder = Recorder(state, outdir=tmp, record_interval=0.01, tick=0.01)
         recorder.start()
         time.sleep(0.4)
         state.shutdown()
@@ -92,7 +92,7 @@ class NoRunNameCollisionTest(unittest.TestCase):
         state.set_position(51.4385, 6.7882)
         state.mark_gps_fix()
         state.set_measurement(12.3, 45.6)
-        recorder = Recorder(state, outdir=tmp, kml_interval=0.01, tick=0.01)
+        recorder = Recorder(state, outdir=tmp, record_interval=0.01, tick=0.01)
         recorder.start()
         state.recording = True
         time.sleep(0.4)
@@ -191,7 +191,7 @@ class KmlClosedPromptlyTest(unittest.TestCase):
         state.mark_gps_fix()
         state.set_measurement(10.0, 20.0)
         # Messintervall 1 s, Stop-Reaktion soll deutlich schneller sein.
-        recorder = Recorder(state, outdir=tmp, kml_interval=1.0, tick=0.02)
+        recorder = Recorder(state, outdir=tmp, record_interval=1.0, tick=0.02)
         recorder.start()
         state.recording = True
         time.sleep(1.2)                 # ein Messwert wird geschrieben
@@ -217,7 +217,7 @@ class KmlClosedPromptlyTest(unittest.TestCase):
 
         tmp = tempfile.mkdtemp()
         state = AppState()
-        recorder = Recorder(state, outdir=tmp, kml_interval=10.0, tick=0.02)
+        recorder = Recorder(state, outdir=tmp, record_interval=10.0, tick=0.02)
         recorder.start()
         state.recording = True
         time.sleep(0.1)
@@ -313,3 +313,81 @@ class WaitRecordingTest(unittest.TestCase):
             recorder._now = saved
         # Nicht die vollen 60 s abgewartet.
         self.assertLess(clock.now() - 1000.0, 1.0)
+
+
+class ScheduleTest(unittest.TestCase):
+    """Takt der Messpunkte ueber viele Intervalle, gegen eine Fake-Uhr.
+
+    Recorder und AppState sind echt; nur Uhr (recorder._now, Wanduhr
+    clock=) und state.wait laufen ueber die FakeClock aus
+    WaitRecordingTest.
+    """
+
+    def setUp(self):
+        import recorder
+        from state import AppState
+        self.clock = WaitRecordingTest.FakeClock(overhead=0.015)
+        self.state = AppState(record_interval=5)
+        self.state.set_measurement(10.0, 20.0)
+        self.state.wait = self.clock.wait
+        self.tmp = tempfile.mkdtemp()
+        self.rec = recorder.Recorder(self.state, outdir=self.tmp, tick=0.5,
+                                     clock=self.clock.now)
+        saved = recorder._now
+        recorder._now = self.clock.now
+        self.addCleanup(setattr, recorder, '_now', saved)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _epochs(self):
+        return [point[0] for point in self.state.history()]
+
+    def test_points_do_not_drift(self):
+        """Begaenne jedes Fenster erst, wenn der Punkt geschrieben ist,
+        verschoebe jeder Punkt die folgenden um seine Verspaetung -- nach
+        20 Punkten waeren das hier 0,3 s, nach einem Tag Minuten."""
+        for _ in range(20):
+            self.rec._run_once()
+        epochs = self._epochs()
+        self.assertEqual(len(epochs), 20)
+        for number, epoch in enumerate(epochs, 1):
+            late = epoch - (1000.0 + 5 * number)
+            self.assertTrue(0 <= late < 0.02, 'Punkt %d um %.3f s verschoben' % (number, late))
+
+    def test_after_sleep_no_burst_of_points(self):
+        """Schlief das Geraet eine Minute, kommt ein Punkt sofort, der
+        naechste ein Intervall spaeter -- nicht zwoelf auf einmal."""
+        self.rec._run_once()
+        self.clock.t += 60
+        self.rec._run_once()
+        self.rec._run_once()
+        epochs = self._epochs()
+        self.assertEqual(len(epochs), 3)
+        self.assertLess(epochs[1] - 1065.0, 0.1)
+        self.assertAlmostEqual(epochs[2] - epochs[1], 5.0, delta=0.05)
+
+    def test_hanging_upload_leaves_no_gap(self):
+        """Der Upload laeuft im Recorder-Thread. Haengt er (hier 15 s),
+        kommt der naechste Punkt spaet; trug er trotzdem 5 s, trennte das
+        Diagramm (Luecke ab 2,5 x Intervall) die Linie bei jedem Upload."""
+        import recorder
+
+        def hanging(url, body, headers, timeout=None):
+            self.clock.t += 15
+            return 201
+        saved = recorder.post_json
+        recorder.post_json = hanging
+        self.addCleanup(setattr, recorder, 'post_json', saved)
+        rec = recorder.Recorder(self.state, outdir=self.tmp, tick=0.5,
+                                stat_interval=20, clock=self.clock.now)
+        self.state.stationary = True
+        for _ in range(15):
+            rec._run_once()
+        points = self.state.history()
+        self.assertGreater(len(points), 5)
+        self.assertTrue(any(point[3] > 5 for point in points), points)
+        for previous, point in zip(points, points[1:]):
+            self.assertLessEqual(point[0] - previous[0], 2.5 * max(previous[3], point[3]),
+                                 (previous, point))

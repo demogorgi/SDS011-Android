@@ -44,6 +44,39 @@ class ColorSelectionTest(unittest.TestCase):
         self.assertEqual(kml.color_selection_rgb(49.5, 'pm_25'), '#FF7814')
 
 
+class LevelTest(unittest.TestCase):
+    """Einstufung fuer die Oberflaeche -- dieselben Schwellen wie die
+    Ampelfarben."""
+
+    def test_pm10_thresholds(self):
+        self.assertEqual(kml.level(0.0, 'pm_10'), 'good')
+        self.assertEqual(kml.level(39.9, 'pm_10'), 'good')
+        self.assertEqual(kml.level(40.0, 'pm_10'), 'elevated')
+        self.assertEqual(kml.level(49.9, 'pm_10'), 'elevated')
+        self.assertEqual(kml.level(50.0, 'pm_10'), 'high')
+        self.assertEqual(kml.level(999.9, 'pm_10'), 'high')
+
+    def test_pm25_thresholds(self):
+        self.assertEqual(kml.level(24.9, 'pm_25'), 'good')
+        self.assertEqual(kml.level(25.0, 'pm_25'), 'elevated')
+        self.assertEqual(kml.level(49.5, 'pm_25'), 'elevated')
+        self.assertEqual(kml.level(50.0, 'pm_25'), 'high')
+
+    def test_matches_the_colors(self):
+        names = {'#2bef0d': 'good', '#FF7814': 'elevated', '#F00014': 'high'}
+        for pm in ('pm_10', 'pm_25'):
+            value = 0.0
+            while value <= 80.0:
+                self.assertEqual(kml.level(value, pm),
+                                 names[kml.color_selection_rgb(value, pm)], (pm, value))
+                value += 0.5
+
+    def test_unknown_or_invalid(self):
+        self.assertEqual(kml.level(10.0, 'pm_99'), 'none')
+        self.assertEqual(kml.level(-1.0, 'pm_10'), 'none')
+        self.assertEqual(kml.level(None, 'pm_25'), 'none')
+
+
 class FileOutputTest(unittest.TestCase):
 
     def setUp(self):

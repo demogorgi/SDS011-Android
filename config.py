@@ -20,9 +20,17 @@ import os
 # 0 = nur Fehler, 1 = Betriebsmeldungen, 2 = Details, 3 = Protokoll-Debug
 LOG_LEVEL = 1
 
-# Takt in Sekunden, in dem Messfahrt und lokale Messung einen Messpunkt
-# schreiben (KML/CSV).
-KML_INT = 5
+# Standard-Messintervall in Sekunden: so oft werden die Sensorwerte
+# (etwa einer pro Sekunde) gemittelt, als ein Punkt gespeichert (CSV,
+# bei der Messfahrt auch KML) und ins Diagramm gezeichnet. In der
+# Oberflaeche umstellbar; die Wahl landet in SETTINGS_FILE und gilt
+# auch nach einem Neustart. Sollte einer der RECORD_INT_CHOICES sein.
+RECORD_INT = 5
+# Messintervalle in Sekunden, die die Oberflaeche zur Wahl stellt.
+RECORD_INT_CHOICES = (5, 10, 30, 60, 300, 900)
+# So viele Intervall-Mittelwerte behaelt der Verlauf fuer das Diagramm:
+# 6 h bei 5 s, 3 Tage bei 1 min. Aeltere fallen heraus.
+HISTORY_SIZE = 4320
 # Intervall in Sekunden, in dem die GPS-Position neu gelesen wird.
 GPS_INT = 5
 # Kommt so viele Sekunden keine neue Position, wird das GPS ab- und
@@ -35,7 +43,9 @@ GPS_RESTART_MAX = 600
 # beginnt danach neu statt mit einer geraden Linie von der alten
 # Position. Dieselbe Schwelle gilt fuer die Anzeige "GPS: aktuell".
 GPS_MAX_AGE = 15
-# Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus.
+# Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus;
+# hochgeladen wird der Mittelwert ueber diese Zeit. sensor.community
+# erwartet Werte etwa alle 2-5 min -- nicht unter 150 s setzen.
 STAT_INT = 240
 # Hoechstalter in Sekunden eines Messwerts, der aufgezeichnet oder
 # hochgeladen wird. Der Sensor sendet etwa einmal pro Sekunde -- bleibt
@@ -72,6 +82,7 @@ HTTP_PORT = 8080
 # erreicht jeder Dateimanager ohne PC -- anders als Android/data/, das
 # nur QPython selbst lesen darf. Ist das Verzeichnis nicht beschreibbar
 # oder steht hier None, landet alles in output/ neben dem Programm.
+# Per SDS011_OUTDIR ueberschreibbar (auf jeder Plattform).
 ANDROID_OUTDIR = '/storage/emulated/0/Download/Feinstaub'
 
 ##
@@ -143,9 +154,16 @@ def choose_outdir(android=None, preferred=None):
     """Ausgabeverzeichnis: unter Android ANDROID_OUTDIR, sofern
     beschreibbar, sonst output/ neben dem Programm.
 
-    android und preferred ersetzen fuer Tests die Erkennung bzw.
-    ANDROID_OUTDIR.
+    SDS011_OUTDIR geht allem vor, damit Testlaeufe (etwa der
+    Browsertest) nicht in das echte output/ schreiben -- dort laege
+    sonst ihr Messintervall in einstellungen.json. android und preferred
+    ersetzen fuer Tests die Erkennung bzw. ANDROID_OUTDIR.
     """
+    override = os.environ.get('SDS011_OUTDIR')
+    if override:
+        # Absolut, damit ein relativer Pfad nicht vom Arbeitsverzeichnis
+        # abhaengt, das unter QPython ein anderes sein kann.
+        return os.path.abspath(override)
     if android is None:
         android = on_android()
     if preferred is None:
@@ -173,3 +191,6 @@ def use_fake_hardware():
 # ANDROID_OUTDIR dabei schon an.
 OUTDIR = choose_outdir()
 LOGFILE = os.path.join(OUTDIR, 'logfile.txt')
+# Einstellungen aus der Oberflaeche (derzeit das Messintervall), siehe
+# settings.py.
+SETTINGS_FILE = os.path.join(OUTDIR, 'einstellungen.json')

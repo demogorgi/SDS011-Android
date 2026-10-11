@@ -70,7 +70,7 @@ class LocalRecordingTest(unittest.TestCase):
     def _run_mode(self, local, place=u'', seconds=0.4):
         self.state.set_place(place)
         recorder = Recorder(self.state, outdir=self.tmp,
-                            kml_interval=0.05, tick=0.01)
+                            record_interval=0.05, tick=0.01)
         recorder.start()
         if local:
             self.state.local = True
@@ -121,7 +121,7 @@ class LocalRecordingTest(unittest.TestCase):
 
     def test_nothing_before_start(self):
         recorder = Recorder(self.state, outdir=self.tmp,
-                            kml_interval=0.05, tick=0.01)
+                            record_interval=0.05, tick=0.01)
         recorder.start()
         time.sleep(0.2)
         self.state.shutdown()
@@ -136,7 +136,7 @@ class NoUploadTest(unittest.TestCase):
         calls = []
         state = AppState()
         recorder = Recorder(state, outdir=tempfile.mkdtemp(),
-                            kml_interval=0.05, tick=0.01)
+                            record_interval=0.05, tick=0.01)
         recorder._push_step = lambda: calls.append(1)
         recorder.start()
         state.local = True
@@ -149,7 +149,7 @@ class NoUploadTest(unittest.TestCase):
         calls = []
         state = AppState()
         recorder = Recorder(state, outdir=tempfile.mkdtemp(),
-                            kml_interval=0.05, tick=0.01)
+                            record_interval=0.05, tick=0.01)
         recorder._push_step = lambda: calls.append(1)
         recorder.start()
         state.recording = True
@@ -163,7 +163,7 @@ class NoUploadTest(unittest.TestCase):
         calls = []
         state = AppState()
         recorder = Recorder(state, outdir=tempfile.mkdtemp(),
-                            kml_interval=0.05, tick=0.01, stat_interval=0.05)
+                            record_interval=0.05, tick=0.01, stat_interval=0.05)
         recorder._push_step = lambda: calls.append(1)
         recorder.start()
         state.stationary = True

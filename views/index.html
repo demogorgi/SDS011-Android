@@ -1,527 +1,309 @@
 <!doctype html>
 <html lang="de">
-  <head>
-    <title>Mobiler Feinstaubsensor</title>
-    <meta http-equiv="content-type" content="text/html; charset=utf-8">
-    <!-- Bibliotheken liegen lokal in /static, damit die Seite auch ohne
-         Internet funktioniert -- unterwegs gibt es oft kein Netz. -->
-    <script type="text/javascript" src="/static/jquery-3.7.1.min.js"></script>
-    <script type="text/javascript" src="/static/Chart.min.js"></script>
-    <script type="text/javascript">
-      // Leer = relative URLs. So passt die Seite zu jeder Adresse und jedem
-      // Port des Servers (SDS011_HOST, SDS011_PORT).
-      var $SCRIPT_ROOT = '';
-    </script>
-  </head>
-  <body>
+<head>
+  <meta charset="utf-8">
+  <!-- Ohne viewport rechnet das Handy mit 980 px Breite und verkleinert
+       alles; die alte Seite hat das mit font-size 2em ausgeglichen. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0d0d0d">
+  <title>Feinstaub</title>
+  <!-- Kein Favicon: spart dem einfaedrigen Server die 404-Anfrage. -->
+  <link rel="icon" href="data:,">
+  <!-- Alles liegt lokal in /static -- unterwegs gibt es oft kein Netz. -->
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
 
-    <script type=text/javascript>
-      refreshTimer = null;
-      refreshInterval = 1000;
+<header class="appbar">
+  <div class="appbar-inner">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="brand-10" cx="14.5" cy="14.5" r="6"/>
+        <circle class="brand-25" cx="6" cy="7" r="3"/>
+        <circle class="brand-25" cx="15" cy="3.8" r="1.6"/>
+        <circle class="brand-25" cx="4.2" cy="17" r="1.6"/>
+      </svg>
+      <span class="brand-name">Feinstaub</span>
+    </div>
+    <div class="appbar-status" id="appbarStatus">
+      <!-- Laufende Messung: Tippen springt zur Karte mit "Stoppen" -->
+      <a class="pill pill-rec" id="headMode" href="#measureCard" hidden>
+        <span class="dot" aria-hidden="true"></span><span class="tnum" id="headModeText">00:00:00</span>
+      </a>
+      <span class="pill" id="connStatus" data-state="off" role="status">
+        <span class="dot" aria-hidden="true"></span><span class="pill-text" id="connText">getrennt</span>
+      </span>
+    </div>
+  </div>
+</header>
 
-      // Buttons aus dem Serverzustand ableiten, nicht aus dem letzten
-      // Klick, sonst stimmt die Anzeige nach einem Reload nicht.
-      // Gesperrt wird ueber die CSS-Klasse 'off', nicht ueber
-      // prop('disabled'): die Buttons sind <div>-Elemente, dort hat
-      // disabled keine sichtbare Wirkung.
-      function setEnabled(selector, enabled) {
-        $(selector).toggleClass('off', !enabled)
-                   .attr('aria-disabled', enabled ? 'false' : 'true');
-      }
+<main class="wrap">
 
-      function applyMode(data) {
-        // Starten nur mit verbundenem Sensor, sonst entstehen Dateien voller
-        // Nullen, die wie echte Messwerte aussehen. Stoppen geht immer,
-        // auch wenn die Verbindung unterwegs abreisst.
-        var ready = (data.connection === 'verbunden');
-        // Die drei Modi schliessen sich aus: laeuft einer, sind alle
-        // Startknoepfe gesperrt. Der Server prueft das zusaetzlich.
-        var busy = data.recording || data.local || data.stationary;
-        setEnabled("#startBtn", ready && !busy);
-        setEnabled("#stoppBtn", data.recording);
-        setEnabled("#startLocalBtn", ready && !busy);
-        setEnabled("#stoppLocalBtn", data.local);
-        setEnabled("#startStatBtn", ready && !busy);
-        setEnabled("#stoppStatBtn", data.stationary);
-        // Ortsangabe nicht ueberschreiben, waehrend getippt wird.
-        if (data.local && document.activeElement !== document.getElementById('placeInput')) {
-          $('#placeInput').val(data.place);
-        }
-      }
+  <noscript>
+    <div class="banner">Diese Oberfläche braucht JavaScript.</div>
+  </noscript>
 
-      function loadDevices() {
-        $.ajax({
-          type: "GET",
-          url: $SCRIPT_ROOT + "/devices/",
-          dataType: "json",
-          success: function(data) {
-            var sel = $("#deviceSelect");
-            sel.empty();
-            if (!data.devices.length) {
-              sel.append($('<option>').attr('value', '').text('kein Gerät gefunden'));
-              return;
-            }
-            $.each(data.devices, function(i, d) {
-              sel.append($('<option>').attr('value', d.id).text(d.name));
-            });
-            if (data.selected) { sel.val(data.selected); }
-          },
-          error: function() {
-            $('#echoerror').text("Geräteliste nicht abrufbar.");
-          }
-        });
-      }
+  <!-- Fehler vom Server (error_msg) oder: Server antwortet nicht. -->
+  <div class="banner" id="errorBanner" role="alert" hidden>
+    <svg class="banner-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>
+    <span id="errorText"></span>
+  </div>
 
-      function applyConnection(data) {
-        var box = $('#echoconnection');
-        var text = data.connection;
-        if (data.device_name) { text += " – " + data.device_name; }
-        else if (data.device) { text += " – " + data.device; }
-        if (data.connection_error) { text += " (" + data.connection_error + ")"; }
-        box.text(text);
-        box.removeClass('an aus warte');
-        if (data.connection === 'verbunden') { box.addClass('an'); }
-        else if (data.connection_wanted) { box.addClass('warte'); }
-        else { box.addClass('aus'); }
-
-        setEnabled("#connectBtn", !data.connection_wanted);
-        setEnabled("#disconnectBtn", data.connection_wanted);
-        // Solange verbunden wird, soll die Auswahl nicht wandern.
-        if (data.connection_wanted && data.device) {
-          $("#deviceSelect").val(data.device);
-        }
-      }
-
-      // Zeigt, ob die GPS-Position aktuell ist oder wie alt sie ist. Die
-      // Schwelle gps_max_age kommt vom Server (config.GPS_MAX_AGE).
-      function showGps(data) {
-        var box = $('#echogps');
-        var age = data.gps_age;
-        box.removeClass('warn');
-        if (!data.gps_available) {
-          box.text('GPS: auf diesem Gerät nicht vorhanden');
-          return;
-        }
-        if (age === null || age === undefined) {
-          box.text('GPS: noch kein Signal').addClass('warn');
-          return;
-        }
-        var text = age < 120 ? age + ' s' : Math.floor(age / 60) + ' min';
-        if (age <= (data.gps_max_age || 15)) {
-          box.text('GPS: aktuell (vor ' + text + ')');
-        } else {
-          box.text('GPS: kein Signal seit ' + text).addClass('warn');
-        }
-      }
-
-      function refreshStatus() {
-        $.ajax({
-          type: "GET",
-          url: $SCRIPT_ROOT + "/status/",
-          dataType: "json",
-          success: function(data) {
-            $('#echoResultStatus').text(data.value);
-            $('#echolat').text(data.lat);
-            $('#echolon').text(data.lon);
-            showGps(data);
-            $('#echopm_10').text(data.pm_10);
-            $('#echopm_10').css("background-color", data.pm_10_color);
-            $('#echopm_25').text(data.pm_25);
-            $('#echopm_25').css("background-color", data.pm_25_color);
-            $('#echoerror').text(data.error_msg);
-            applyMode(data);
-            applyConnection(data);
-            addData( myChart, "", data.pm_10, data.pm_25 );
-          },
-          error: function() {
-            // Ohne diesen Hinweis bliebe die Anzeige kommentarlos beim
-            // letzten Wert stehen, wenn der Server nicht mehr antwortet.
-            $('#echoerror').text("Keine Verbindung zur Messanwendung.");
-          }
-        });
-      };
-
-      function periodicRefresh() {
-        refreshStatus();
-        // Handle merken, damit startPeriodicRefresh() die laufende Kette
-        // abbrechen kann. Sonst startet jede Aenderung der Rate eine
-        // weitere Kette, die nie endet.
-        refreshTimer = setTimeout(periodicRefresh, refreshInterval);
-      };
-
-      function startPeriodicRefresh(seconds) {
-	      if (refreshTimer)
-		clearTimeout(refreshTimer);
-
-	      refreshInterval = seconds * 1000;
-
-	      refreshTimer = setTimeout(periodicRefresh, refreshInterval);
-	    }
-
-      // Button, der einen Befehl ohne Parameter an den Server schickt und
-      // danach den Serverzustand neu liest. Gesperrt/frei setzen
-      // applyMode() und applyConnection() aus diesem Zustand, nicht der
-      // Klick-Handler.
-      function modeButton(id, path) {
-        $(id).click(function() {
-          if ($(this).hasClass('off')) { return; }
-          $.ajax({
-            type: "GET",
-            url: $SCRIPT_ROOT + path,
-            dataType: "json",
-            success: function(data) {
-              $('#echoResult').text(data.value);
-              refreshStatus();
-            },
-            error: function() {
-              $('#echoerror').text("Befehl konnte nicht gesendet werden.");
-            }
-          });
-        });
-      }
-
-      $(function() {
-        $('#refreshRate').change(function() {
-          startPeriodicRefresh($('#refreshRate').val());
-        });
-        startPeriodicRefresh(10);
-
-        $("#refreshBtn").click(function() {
-          refreshStatus();
-        });
-
-        $("#connectBtn").click(function() {
-          if ($(this).hasClass('off')) { return; }
-          var device = $("#deviceSelect").val() || '';
-          $.ajax({
-            type: "GET",
-            url: $SCRIPT_ROOT + "/connect/?device=" + encodeURIComponent(device),
-            dataType: "json",
-            success: function(data) {
-              $('#echoResult').text(data.value);
-              refreshStatus();
-            },
-            error: function() {
-              $('#echoerror').text("Verbinden konnte nicht angestoßen werden.");
-            }
-          });
-        });
-        modeButton("#disconnectBtn", "/disconnect/");
-
-        $("#startLocalBtn").click(function() {
-          if ($(this).hasClass('off')) { return; }
-          var place = $("#placeInput").val() || '';
-          $.ajax({
-            type: "GET",
-            url: $SCRIPT_ROOT + "/localon/?place=" + encodeURIComponent(place),
-            dataType: "json",
-            success: function(data) {
-              $('#echoResult').text(data.value);
-              refreshStatus();
-            },
-            error: function() {
-              $('#echoerror').text("Lokale Messung konnte nicht gestartet werden.");
-            }
-          });
-        });
-        modeButton("#stoppLocalBtn", "/localoff/");
-
-        modeButton("#startBtn", "/start/");
-        modeButton("#stoppBtn", "/stopp/");
-        modeButton("#startStatBtn", "/staton/");
-        modeButton("#stoppStatBtn", "/statoff/");
-
-        // Sofort einmal lesen, damit die Buttons von Anfang an stimmen.
-        loadDevices();
-        refreshStatus();
-      });
-    </script>
-
-    <style media="screen">
-
-body {background-color: #1B262C; color: #BBE1FA; }
-
-.main-pnl { font-family: Arial; font-size: 2em !important; width: 95%; margin-left: auto; margin-right: auto; }
-
-table { font-size: 1.2em !important; }
-td { text-align: center; }
-.tdblack { color: black; }
-.tdwhite { color: #3282B8; }
-
-a { color: #3282B8; font-size: 1em; margin-left: auto; margin-right: auto; }
-
-.vflex { display: flex; flex-direction: column; }
-.hflex { display: flex; flex-direction: row; }
-hline { width: 100%; height: 2px; background-color: #BBE1FA; }
-strong { text-align: center; }
-
-.stretched { align-items: stretch; justify-content: space-between; align-content: stretch; }
-
-.btn { cursor: pointer; display: inline-block; padding: 0.5em; border-radius: 10%; text-align: center; color: #BBE1FA }
-/* Gesperrter Button (siehe setEnabled()). */
-.btn.off { opacity: 0.3; cursor: default; }
-/* Verbindungszustand des Sensors (an/warte/aus). Daran sieht man, ob
-   ein Wert von 0 ug/m3 echt ist oder der Sensor fehlt. */
-.conn { text-align: center; padding: 0.3em; margin-top: 0.4em; border-radius: 6px; }
-.conn.an { background-color: #14532d; color: #86efac; }
-.conn.aus { background-color: #3f3f46; color: #d4d4d8; }
-.conn.warte { background-color: #78350f; color: #fcd34d; }
-.select { width: 33.3%; }
-.hint { font-size: 0.6em; color: #7fa8c4; margin-bottom: 0.4em; }
-/* Warnhinweis: GPS ohne aktuelles Signal und der stationaere Modus. Er
-   laedt als einziger Modus Daten oeffentlich hoch -- das soll man vor
-   dem Antippen sehen. */
-.warn { font-size: 0.6em; color: #fcd34d; background-color: #78350f;
-        padding: 0.5em; border-radius: 6px; margin-bottom: 0.5em; }
-.place { width: 100%; box-sizing: border-box; font-size: 0.8em;
-         padding: 0.4em; margin-bottom: 0.5em; border-radius: 6px;
-         border: 1px solid #3282B8; background-color: #0F4C75;
-         color: #BBE1FA; }
-.btn.start { background-color: #0F4C75; width: 30%; }
-.btn.stop { background-color: #3282B8; width: 30% }
-.btn.refresh { background-color: #3282B8; width: 30% }
-
-select {
-  width: 33.3%;
-  font-size: 1em;
-  cursor: pointer;
-  display: inline-block;
-  padding: 0.5em;
-  border-radius: 10%;
-  color: #BBE1FA;
-  background: url(/static/arrow_down.png) no-repeat right #0F4C75;
-  background-size: 1.3em;
-  -webkit-appearance: none;
-}
-
-    </style>
-
-
-    <div class="vflex main-pnl">
-      <strong>Feinstaubwerte in &micro;g/m<sup>3</sup> und GPS Position</strong>
-      <br/>
-      <table style="width: 100%" >
-	<!--id="table-column-toggle" -->
-	<thead>
-	  <tr>
-	    <th>PM<sub>10</sub></th>
-	    <th>PM<sub>2.5</sub></th>
-	  </tr>
-	</thead>
-	<tbody>
-	  <tr>
-	    <td class="tdblack" id="echopm_10"></td>
-	    <td class="tdblack" id="echopm_25"></td>
-	  </tr>
-	</tbody>
-      </table>
-
-      <br/>
-
-      <table style="width: 100%" >
-	<!--id="table-column-toggle" -->
-	<thead>
-	  <tr>
-	    <th>Breite</th>
-	    <th>Länge</th>
-	  </tr>
-	</thead>
-	<tbody>
-	  <tr>
-	    <td class="tdwhite" id="echolat"></td>
-	    <td class="tdwhite" id="echolon"></td>
-	  </tr>
-	</tbody>
-      </table>
-      <div class="hint" id="echogps"></div>
-
-      <br/>
-      <hline></hline>
-      <br/>
-
-      <strong>Visualisierung</strong><br/>
-      <div style="width:100%;">
-
-	<canvas id="mycanvas"></canvas>
+  <!-- Sensor: getrennt = Auswahl + Verbinden, sonst eine kompakte Zeile -->
+  <section class="card sensor" id="sensorCard" data-state="off" aria-label="Sensor">
+    <div id="sensorSetup">
+      <div class="card-head">
+        <h2 class="card-title">Sensor</h2>
       </div>
-      <script>
-	// Gleitendes Fenster: bei 1 s Aktualisierungsrate kaemen pro Stunde
-	// 3600 Punkte zusammen, und der Chart wuerde immer langsamer.
-	var MAX_POINTS = 300;
-
-	function addData(chart, label, data1, data2) {
-		  chart.data.labels.push(label);
-		  chart.data.datasets[0].data.push(data1);
-		  chart.data.datasets[1].data.push(data2);
-		  while (chart.data.labels.length > MAX_POINTS) {
-			    chart.data.labels.shift();
-			    chart.data.datasets[0].data.shift();
-			    chart.data.datasets[1].data.shift();
-			  }
-		  chart.update(0); // 0 = ohne Animation
-		}
-
-
-	// Leerer Chart; gefuellt wird er aus refreshStatus() ueber addData().
-	var ctx_live = document.getElementById("mycanvas");
-	Chart.defaults.global.defaultFontSize = 30;
-	var myChart = new Chart(ctx_live, {
-		  type: 'line',
-		  data: {
-			    labels: [],
-			    datasets: [{
-				      data: [],
-				      steppedLine: false,
-				      borderWidth: 2,
-				      borderColor:'#00ff88',
-				      backgroundColor:'#00ff88',
-				      label: 'PM\u2081\u2080',
-				      fill: false,
-				    }, {
-					      data: [],
-					      steppedLine: false,
-					      borderWidth: 2,
-					      borderColor:'#ff8800',
-					      backgroundColor:'#ff8800',
-					      label: 'PM\u2082.\u2085',
-					      fill: false,
-					    }]
-			  },
-		  options: {
-			    responsive: true,
-			    title: {
-				      display: false,
-				      fontColor: "#BBE1FA",
-				      text: "pm10 and pm2.5 values dynamically updated",
-				    },
-			    legend: {
-				      display: true,
-				      labels: {
-						fontColor: "#BBE1FA",
-					      }
-				    },
-			    scales: {
-				      xAxes: [{
-						gridLines: {
-							  display: false ,
-							  color: "#3282B8",
-							  zeroLineColor: "#3282B8",
-							},
-						ticks: {
-							  beginAtZero: true,
-							  fontColor: "#BBE1FA",
-							}
-					      }],
-				      yAxes: [{
-						gridLines: {
-							  display: true ,
-							  color: "#3282B8",
-							  zeroLineColor: "#3282B8",
-							},
-						ticks: {
-							  beginAtZero: true,
-							  fontColor: "#BBE1FA",
-							}
-					      }]
-				    }
-			  }
-		});
-
-      </script>
-      <br />
-      <hline></hline>
-      <br />
-
-      <strong>Aktualisierung der Anzeige</strong><br/>
-      <div class="hflex stretched">
-	<select class="select" id="refreshRate">
-	  <option value="1">1 Sekunde</option>
-	  <option value="2">2 Sekunden</option>
-	  <option value="5">5 Sekunden</option>
-	  <option value="10" selected>10 Sekunden</option>
-	  <option value="30">30 Sekunden</option>
-	  <option value="60">1 Minute</option>
-	  <option value="300">5 Minuten</option>
-	  <option value="1800">30 Minuten</option>
-	  <option value="3600">60 Minuten</option>
-	</select>
-	<div class="btn refresh" type='button' id='refreshBtn'>Jetzt</div>
+      <p class="help help-top">Sensor einschalten, dann verbinden.</p>
+      <label class="label" for="deviceSelect">Gerät</label>
+      <div class="select-row">
+        <div class="select-wrap">
+          <select id="deviceSelect" class="select">
+            <option value="">Geräte werden gesucht …</option>
+          </select>
+        </div>
+        <button type="button" class="icon-btn" id="reloadDevices" aria-label="Geräteliste neu laden" title="Geräteliste neu laden">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+        </button>
       </div>
-
-      <br/>
-      <hline></hline>
-      <br/>
-
-      <strong>Sensor</strong><br/>
-      <div class="hflex stretched">
-	<select class="select" id="deviceSelect"></select>
-	<div class="btn start" id="connectBtn">Verbinden</div>
-	<div class="btn stop" id="disconnectBtn">Trennen</div>
-      </div>
-      <div id="echoconnection" class="conn"></div>
-
-      <br/>
-      <hline></hline>
-      <br/>
-
-      <strong>Messfahrt</strong><br/>
-      <div class="hint">GPS-Spur und CSV in Dateien. Kein Upload.</div>
-      <div class="hflex stretched">
-	<div class="btn start" id="startBtn">Start</div>
-	<div class="btn stop" id="stoppBtn">Stop</div>
-      </div>
-
-      <br>
-      <hline></hline>
-      <br>
-
-      <strong>Lokale Messung</strong><br/>
-      <div class="hint">Messung an einem Ort, nur CSV, kein GPS nötig.
-        Kein Upload.</div>
-      <input type="text" id="placeInput" class="place"
-             placeholder="Ort, z. B. Kletterhalle" maxlength="40">
-      <div class="hflex stretched">
-	<div class="btn start" id="startLocalBtn">Start</div>
-	<div class="btn stop" id="stoppLocalBtn">Stop</div>
-      </div>
-
-      <br>
-      <hline></hline>
-      <br>
-
-      <strong>Stationär – Upload zu luftdaten.info</strong><br/>
-      <div class="warn">Überträgt die Messwerte öffentlich als
-        <b>{{xsensor}}</b>. Nur am mit luftdaten vereinbarten Standort
-        einschalten.</div>
-      <div class="hflex stretched">
-	<div class="btn start" id="startStatBtn">StatStart</div>
-	<div class="btn stop" id="stoppStatBtn">StatStop</div>
-      </div>
-
-      <br>
-      <hline></hline>
-      <br>
-
-      <strong>Weitere Informationen</strong><br/>
-      <div style="background-color:red; color:black;" id='echoerror'></div>
-      <div id='echoResultStatus'></div>
-      <div id='echoResult'></div>
-      <div class="hint">Aufzeichnungen und Log: {{outdir}}</div>
-
-      <br/>
-      <hline></hline>
-      <br/>
-
-      <embed src="https://deutschland.maps.sensor.community/#16/51.4385/6.7882" style="width:95%; height:80vw;">
-
-      <br/>
-      <hline></hline>
-      <br/>
-
-      <a href="https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub">Grenzwerte Umweltbundesamt</a>
-
-      <br/>
+      <button type="button" class="btn btn-primary btn-lg btn-block" id="connectBtn">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></svg>Verbinden
+      </button>
     </div>
 
-  </body>
+    <div class="sensor-link" id="sensorLink" hidden>
+      <span class="sensor-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></svg>
+        <span class="spinner"></span>
+      </span>
+      <span class="sensor-text">
+        <span class="sensor-name" id="sensorName">Sensor</span>
+        <span class="sensor-sub" id="sensorSub"></span>
+      </span>
+      <button type="button" class="btn btn-secondary btn-compact" id="disconnectBtn" disabled>Trennen</button>
+    </div>
+    <!-- Grund, warum die Verbindung noch nicht steht -->
+    <p class="sensor-error" id="sensorError" hidden></p>
+  </section>
+
+  <!-- Live-Werte -->
+  <section class="card live" aria-label="Aktuelle Messwerte">
+    <div class="tiles" aria-live="polite">
+      <div class="tile" id="tile25">
+        <div class="tile-label">
+          <span><span class="key key-25" aria-hidden="true"></span>PM<sub>2.5</sub></span>
+          <span class="unit">µg/m³</span>
+        </div>
+        <div class="num" id="pm25Value">–</div>
+        <span class="level" id="pm25Level" data-level="none">kein Wert</span>
+      </div>
+      <div class="tile" id="tile10">
+        <div class="tile-label">
+          <span><span class="key key-10" aria-hidden="true"></span>PM<sub>10</sub></span>
+          <span class="unit">µg/m³</span>
+        </div>
+        <div class="num" id="pm10Value">–</div>
+        <span class="level" id="pm10Level" data-level="none">kein Wert</span>
+      </div>
+    </div>
+    <div class="live-meta">
+      <div class="meta-row">
+        <span class="live-dot" id="liveDot" aria-hidden="true"></span>
+        <span id="liveAge">kein Sensor</span>
+      </div>
+      <div class="meta-row gps" id="gpsRow" data-state="none">
+        <svg class="meta-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        <span id="gpsStatus">GPS</span>
+        <span class="gps-coords tnum" id="gpsCoords"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Verlauf: das Diagramm zeichnet der Server (/chart.svg) -->
+  <section class="card" aria-labelledby="chartTitle">
+    <div class="card-head card-head-wrap">
+      <h2 class="card-title" id="chartTitle">Verlauf</h2>
+      <div class="seg seg-fit" id="rangeSelect" role="group" aria-label="Zeitraum">
+        <button type="button" data-range="600" aria-pressed="false">10 min</button>
+        <button type="button" data-range="3600" aria-pressed="false">1 h</button>
+        <button type="button" data-range="21600" aria-pressed="false">6 h</button>
+        <button type="button" data-range="0" aria-pressed="true">Alles</button>
+      </div>
+    </div>
+    <figure class="chart-fig">
+      <div class="chart" id="chart" aria-busy="true">
+        <div class="chart-empty">Diagramm wird geladen …</div>
+      </div>
+      <!-- Legende (PM2.5, PM10, gespeichert) steht im SVG selbst -->
+      <figcaption class="chart-foot" id="chartCaption">Mittelwerte</figcaption>
+    </figure>
+  </section>
+
+  <!-- Messung: Modus waehlen und starten, oder laufende Messung -->
+  <section class="card measure" id="measureCard" aria-labelledby="measureTitle">
+    <div class="card-head">
+      <h2 class="card-title" id="measureTitle">Messung</h2>
+    </div>
+
+    <div id="setupPanel">
+      <div class="last" id="lastSession" hidden>
+        <div class="last-head">
+          <span class="last-title">Letzte Messung</span>
+          <span class="last-when tnum" id="lastWhen"></span>
+        </div>
+        <div class="last-mode" id="lastMode"></div>
+        <div class="last-stats tnum">
+          <div class="last-stat">
+            <div class="last-label">Dauer</div>
+            <div class="last-value" id="lastDuration">–</div>
+          </div>
+          <div class="last-stat">
+            <div class="last-label">Punkte</div>
+            <div class="last-value" id="lastPoints">–</div>
+          </div>
+          <div class="last-stat">
+            <div class="last-label"><span class="key key-25" aria-hidden="true"></span>Ø PM<sub>2.5</sub></div>
+            <div class="last-value" id="lastAvg25">–</div>
+          </div>
+          <div class="last-stat">
+            <div class="last-label"><span class="key key-10" aria-hidden="true"></span>Ø PM<sub>10</sub></div>
+            <div class="last-value" id="lastAvg10">–</div>
+          </div>
+        </div>
+        <div class="last-file mono" id="lastFile"></div>
+      </div>
+
+      <div class="modes" role="radiogroup" aria-label="Modus">
+        <label class="mode" id="modeTrip">
+          <input type="radio" name="mode" value="trip" checked>
+          <span class="mode-body">
+            <span class="mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h8.5a3.5 3.5 0 0 0 0-7h-9a3.5 3.5 0 0 1 0-7H16"/></svg>
+            </span>
+            <span class="mode-text">
+              <span class="mode-title">Messfahrt</span>
+              <span class="mode-desc">Unterwegs: GPS-Spur (KML) und CSV</span>
+            </span>
+            <span class="mode-radio" aria-hidden="true"></span>
+          </span>
+        </label>
+        <label class="mode" id="modeLocal">
+          <input type="radio" name="mode" value="local">
+          <span class="mode-body">
+            <span class="mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+            </span>
+            <span class="mode-text">
+              <span class="mode-title">Lokal</span>
+              <span class="mode-desc">An einem Ort: CSV mit Ortsname</span>
+            </span>
+            <span class="mode-radio" aria-hidden="true"></span>
+          </span>
+        </label>
+        <label class="mode" id="modeStat">
+          <input type="radio" name="mode" value="stat">
+          <span class="mode-body">
+            <span class="mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></svg>
+            </span>
+            <span class="mode-text">
+              <span class="mode-title">Stationär <span class="badge">öffentlich</span></span>
+              <span class="mode-desc">Upload zu sensor.community <span class="js-stat-every">alle paar Minuten</span>, dazu CSV</span>
+            </span>
+            <span class="mode-radio" aria-hidden="true"></span>
+          </span>
+        </label>
+      </div>
+
+      <div class="field" id="placeField" hidden>
+        <label class="label" for="placeInput">Ort</label>
+        <input type="text" id="placeInput" class="input" placeholder="z. B. Kletterhalle"
+               maxlength="40" autocomplete="off" enterkeyhint="go">
+        <p class="help">Erscheint im Dateinamen. Ohne Ort heißt die Datei „lokal“.</p>
+      </div>
+
+      <div class="note note-warn" id="statWarn" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9L1.8 18.5a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.5M12 17.5v.01"/></svg>
+        <p><strong>Öffentlicher Upload.</strong> Die Werte gehen <span class="js-stat-every">alle paar Minuten</span>
+          an sensor.community (luftdaten.info) und erscheinen dort unter der Sensor-ID
+          <b class="mono">{{xsensor}}</b>. Nur am vereinbarten Standort starten.</p>
+      </div>
+    </div>
+
+    <div class="run" id="sessionPanel" hidden>
+      <div class="run-head">
+        <span class="rec-dot" aria-hidden="true"></span>
+        <span id="sessionMode">Messung läuft</span>
+      </div>
+      <div class="run-elapsed tnum" id="sessionElapsed" aria-label="Laufzeit">00:00:00</div>
+      <div class="stats">
+        <div class="stat"><div class="stat-in">
+          <div class="stat-label">Punkte</div>
+          <div class="stat-value tnum" id="sessionPoints">0</div>
+        </div></div>
+        <div class="stat"><div class="stat-in">
+          <div class="stat-label">Nächster Punkt</div>
+          <div class="stat-value tnum" id="nextPoint">–</div>
+        </div></div>
+        <div class="stat"><div class="stat-in">
+          <div class="stat-label"><span class="key key-25" aria-hidden="true"></span>Ø PM<sub>2.5</sub></div>
+          <div class="stat-value tnum"><span id="sessionAvg25">–</span><span class="stat-unit">µg/m³</span></div>
+        </div></div>
+        <div class="stat"><div class="stat-in">
+          <div class="stat-label"><span class="key key-10" aria-hidden="true"></span>Ø PM<sub>10</sub></div>
+          <div class="stat-value tnum"><span id="sessionAvg10">–</span><span class="stat-unit">µg/m³</span></div>
+        </div></div>
+      </div>
+      <div class="upload" id="uploadInfo" data-state="none" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V6M6 11.5L12 5.5l6 6"/></svg>
+        <div>
+          <div id="uploadLast">Noch kein Upload</div>
+          <div class="upload-next tnum" id="uploadNext"></div>
+        </div>
+      </div>
+      <div class="file-row">Datei <span class="mono" id="sessionFile">–</span></div>
+    </div>
+
+    <div class="field" id="intervalField">
+      <span class="label" id="intervalLabel">Messintervall</span>
+      <div class="seg" id="intervalSelect" role="group" aria-labelledby="intervalLabel">
+% for seconds in (get('intervals', None) or ()):
+        <button type="button" data-seconds="{{int(seconds)}}" aria-pressed="false">{{('%d min' % (int(seconds) // 60)) if int(seconds) >= 60 and int(seconds) % 60 == 0 else ('%d s' % int(seconds))}}</button>
+% end
+      </div>
+      <p class="help">So oft wird gemittelt, gespeichert und gezeichnet.</p>
+    </div>
+
+    <button type="button" class="btn btn-primary btn-lg btn-block" id="startBtn" disabled>
+      <svg class="icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"/></svg><span id="startText">Messfahrt starten</span>
+    </button>
+    <p class="help help-center" id="startHint">Zuerst oben den Sensor verbinden.</p>
+    <button type="button" class="btn btn-stop btn-lg btn-block" id="stopBtn" disabled hidden>
+      <svg class="icon-fill" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Stoppen
+    </button>
+  </section>
+
+  <!-- Info -->
+  <footer class="info">
+    <dl class="info-list">
+      <div class="info-row">
+        <dt>Speicherort</dt>
+        <dd class="mono" id="outdirText">{{outdir}}</dd>
+      </div>
+    </dl>
+    <ul class="links">
+      <li><a href="https://deutschland.maps.sensor.community/#16/51.4385/6.7882" target="_blank" rel="noopener">Karte sensor.community<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a></li>
+      <li><a href="https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub" target="_blank" rel="noopener">Grenzwerte Umweltbundesamt<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a></li>
+    </ul>
+  </footer>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span class="toast-msg" id="toastMsg"></span>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
 </html>

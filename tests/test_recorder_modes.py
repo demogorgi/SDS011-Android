@@ -16,6 +16,7 @@ import tempfile
 import time
 import tokenize
 import unittest
+from xml.etree import ElementTree
 
 import config
 import kml
@@ -24,11 +25,12 @@ from recorder import Recorder
 from state import AppState, monotonic
 
 
-def _csv_rows(directory):
-    """Messzeilen aller CSV-Dateien, ohne Kopfzeilen."""
+def _csv_rows(directory, skip=None):
+    """Messzeilen aller CSV-Dateien, ohne Kopfzeilen; Dateien, deren Name
+    skip enthaelt, bleiben aussen vor."""
     rows = []
     for name in sorted(os.listdir(directory)):
-        if name.endswith('.csv'):
+        if name.endswith('.csv') and not (skip and skip in name):
             with io.open(os.path.join(directory, name), encoding='utf-8') as fh:
                 rows.extend(r for r in fh.read().splitlines()
                             if r and r != kml.CSV_HEADER)
@@ -69,7 +71,7 @@ class RecorderTestCase(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def start(self, **kwargs):
-        options = {'outdir': self.tmp, 'kml_interval': 0.3, 'tick': 0.02}
+        options = {'outdir': self.tmp, 'record_interval': 0.3, 'tick': 0.02}
         options.update(kwargs)
         self.recorder = Recorder(self.state, **options)
         self.recorder.start()
@@ -80,7 +82,7 @@ class IntervalTest(RecorderTestCase):
 
     def test_local_mode_keeps_the_interval(self):
         """Die lokale Messung schrieb jeden Tick (0,5 s) eine Zeile statt
-        alle KML_INT (5 s) -- zehnmal zu viele, fast nur Duplikate."""
+        einmal je Messintervall (5 s) -- zehnmal zu viele, fast nur Duplikate."""
         self.start()
         self.state.local = True
         time.sleep(1.05)
@@ -123,10 +125,12 @@ class StaleMeasurementTest(RecorderTestCase):
     def test_track_restarts_after_a_gap(self):
         """Nach einem Ausfall keine gerade Linie ueber die ganze Luecke."""
         rec = Recorder(self.state, outdir=self.tmp, max_age=10)
-        rec._open_files(local=False)
+        rec._open_files(recorder_module.MODE_TRIP)
         rec._record_step()
         self.assertIsNotNone(rec._lat_old)
         self.state.set_measurement(1.0, 2.0, at=monotonic() - 100)
+        # Ein Fenster ohne neue Werte: der Sensor schweigt seit 100 s.
+        rec._start_window()
         rec._record_step()
         self.assertIsNone(rec._lat_old)
 
@@ -169,6 +173,50 @@ class StaleMeasurementTest(RecorderTestCase):
         rec._fresh_measurement(u'nichts aufgezeichnet')
         self.assertEqual(self.state.error(), u'Verbindung zum Sensor verloren')
 
+    def test_window_with_values_is_recorded_after_a_short_dropout(self):
+        """Bei 15 min Intervall verwarf ein Aussetzer kurz vor dem
+        Fensterende die ganze Viertelstunde, obwohl sie Werte hatte."""
+        rec = Recorder(self.state, outdir=self.tmp, record_interval=900, max_age=10)
+        rec._open_files(recorder_module.MODE_LOCAL)
+        rec._start_window()
+        self.state.set_measurement(20.0, 30.0, at=monotonic() - 30)
+        rec._record_step()
+        rows = _csv_rows(self.tmp)
+        self.assertEqual([r.split(';')[1:3] for r in rows], [[u'20,0', u'30,0']], rows)
+        self.assertEqual(self.state.error(), u'')
+
+    def test_hint_goes_away_while_waiting(self):
+        """Der Hinweis stand bis zum naechsten Punkt -- bei 15 min
+        Intervall bis zu 15 min neben frischen Live-Werten."""
+        self.state.set_measurement(1.0, 2.0, at=monotonic() - 100)
+        self.state.set_record_interval(0.1)
+        self.recorder = Recorder(self.state, outdir=self.tmp, tick=0.02, max_age=10)
+        self.recorder.start()
+        self.state.local = True
+        self.assertTrue(_wait_for(lambda: u'Kein aktueller Messwert' in self.state.error()))
+        self.state.set_record_interval(60)
+        time.sleep(0.3)
+        self.assertIn(u'Kein aktueller Messwert', self.state.error())
+        self.state.set_measurement(5.0, 6.0)
+        self.assertTrue(_wait_for(lambda: self.state.error() == u'', timeout=1.0),
+                        self.state.error())
+        # Weggeraeumt hat ihn das Warten, kein neuer Punkt.
+        self.assertEqual(_csv_rows(self.tmp), [])
+
+    def test_upload_after_outage_sends_only_new_values(self):
+        """Nach einem Ausfall mittelte der erste Upload bis zu STAT_INT
+        Sekunden alte Werte von vor dem Ausfall mit ein paar neuen."""
+        rec = Recorder(self.state, outdir=self.tmp, max_age=10)
+        self.assertTrue(rec._push_step())
+        for _ in range(3):                              # vor dem Ausfall
+            self.state.set_measurement(100.0, 100.0, at=monotonic() - 100)
+        self.assertFalse(rec._push_step())              # Sensor schweigt
+        self.state.set_measurement(5.0, 6.0)            # wieder da
+        self.assertTrue(rec._push_step())
+        values = {v['value_type']: v['value']
+                  for v in json.loads(self.posts[-1])['sensordatavalues']}
+        self.assertEqual(values, {'P1': '6.0', 'P2': '5.0'})
+
 
 class ModeSwitchTest(RecorderTestCase):
 
@@ -180,7 +228,10 @@ class ModeSwitchTest(RecorderTestCase):
         self.assertTrue(_wait_for(lambda: self.posts))
         self.state.stationary = False
         self.state.recording = True
-        self.assertTrue(_wait_for(lambda: _csv_rows(self.tmp), timeout=2.0),
+        # Der stationaere Modus schreibt eine eigene CSV; gezaehlt wird
+        # nur die der Messfahrt.
+        self.assertTrue(_wait_for(lambda: _csv_rows(self.tmp, skip='stationaer'),
+                                  timeout=2.0),
                         'Messfahrt hat nach 2 s noch nichts geschrieben')
 
     def test_stationary_retries_soon_without_value(self):
@@ -242,7 +293,7 @@ class WriteErrorTest(RecorderTestCase):
 
         kml.write_csv = flaky
         self.addCleanup(setattr, kml, 'write_csv', original)
-        self.start(kml_interval=0.1)
+        self.start(record_interval=0.1)
         self.state.local = True
         self.assertTrue(_wait_for(lambda: u'Aufzeichnung gestört' in self.state.error()))
         self.assertTrue(self.recorder.is_alive())
@@ -265,7 +316,7 @@ class GpsAgeTest(RecorderTestCase):
 
     def _trip_step(self, **kwargs):
         rec = Recorder(self.state, outdir=self.tmp, **kwargs)
-        rec._open_files(local=False)
+        rec._open_files(recorder_module.MODE_TRIP)
         rec._record_step()
         return rec
 
@@ -288,7 +339,7 @@ class GpsAgeTest(RecorderTestCase):
         """Fix bei A, dann Stille, dann Fix bei B: keine gerade Linie
         von A nach B ueber die Luecke."""
         rec = Recorder(self.state, outdir=self.tmp, gps_max_age=15)
-        rec._open_files(local=False)
+        rec._open_files(recorder_module.MODE_TRIP)
         rec._record_step()                                  # A
         self.state.mark_gps_fix(monotonic() - 100)          # Stille
         rec._record_step()
@@ -341,6 +392,23 @@ class TlsFallbackTest(RecorderTestCase):
         self.assertTrue(urls[2].startswith('http://'))
         self.assertEqual(self.state.error(), u'')
 
+    def test_upload_waits_at_most_15_s(self):
+        """Der Upload laeuft im Recorder-Thread; mit 30 s Timeout fehlten
+        bei haengendem Netz 30 s lang Punkte und CSV-Zeilen. Das gilt
+        auch fuer den Rueckfall auf HTTP."""
+        timeouts = []
+
+        def picky(url, body, headers, timeout=None):
+            timeouts.append(timeout)
+            if url.startswith('https://'):
+                raise IOError('[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed')
+            return 201
+        recorder_module.post_json = picky
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._push_step()
+        self.assertEqual(len(timeouts), 2)
+        self.assertTrue(all(t is not None and t <= 15 for t in timeouts), timeouts)
+
     def test_other_errors_do_not_switch_to_http(self):
         urls = []
 
@@ -385,6 +453,402 @@ class TlsFallbackTest(RecorderTestCase):
         rec._push_step()
         self.assertEqual(len(urls), 2)
         self.assertTrue(all(u.startswith('https://') for u in urls), urls)
+
+
+class WindowMeanTest(RecorderTestCase):
+    """Ein Punkt ist der Mittelwert aller Sensorwerte seines Intervalls,
+    nicht der zufaellige Momentanwert am Ende."""
+
+    def _local(self):
+        rec = Recorder(self.state, outdir=self.tmp, record_interval=5)
+        rec._open_files(recorder_module.MODE_LOCAL)
+        rec._start_window()
+        return rec
+
+    def test_csv_holds_the_mean_of_the_window(self):
+        rec = self._local()
+        for pm_25, pm_10 in ((10.0, 20.0), (20.0, 40.0), (30.0, 60.0)):
+            self.state.set_measurement(pm_25, pm_10)
+        rec._record_step()
+        row = _csv_rows(self.tmp)[0]
+        # Momentanwert waere 30,0;60,0.
+        self.assertEqual(row.split(';')[1:3], [u'20,0', u'40,0'], row)
+        self.assertEqual(self.state.history()[-1][1:3], (20.0, 40.0))
+
+    def test_next_window_only_counts_new_values(self):
+        rec = self._local()
+        self.state.set_measurement(100.0, 100.0)
+        rec._record_step()
+        self.state.set_measurement(2.0, 4.0)
+        self.state.set_measurement(4.0, 8.0)
+        rec._record_step()
+        rows = _csv_rows(self.tmp)
+        self.assertEqual(rows[1].split(';')[1:3], [u'3,0', u'6,0'], rows)
+
+    def test_mean_has_no_float_noise(self):
+        rec = self._local()
+        for _ in range(3):
+            self.state.set_measurement(1.1, 2.2)    # Summe 3.3000000000000003
+        rec._record_step()
+        row = _csv_rows(self.tmp)[0]
+        self.assertEqual(row.split(';')[1:3], [u'1,1', u'2,2'], row)
+        self.assertEqual(self.state.history()[-1][1:3], (1.1, 2.2))
+
+    def test_empty_window_takes_the_current_value(self):
+        """Intervall kuerzer als der Sensortakt: kein Wert im Fenster."""
+        rec = self._local()
+        rec._record_step()
+        self.assertEqual(_csv_rows(self.tmp)[0].split(';')[1:3], [u'12,3', u'45,6'])
+
+    def test_upload_sends_the_mean_since_the_last_upload(self):
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._push_step()                        # erster Upload: Momentanwert
+        for pm_25, pm_10 in ((10.0, 20.0), (20.0, 40.0), (30.0, 60.0)):
+            self.state.set_measurement(pm_25, pm_10)
+        rec._push_step()
+        values = [{v['value_type']: v['value'] for v in json.loads(body)['sensordatavalues']}
+                  for body in self.posts]
+        self.assertEqual(values, [{'P1': '45.6', 'P2': '12.3'},
+                                  {'P1': '40.0', 'P2': '20.0'}])
+
+
+class LiveIntervalTest(RecorderTestCase):
+    """Das Messintervall kommt aus dem AppState; eine Umstellung in der
+    Oberflaeche wirkt sofort, nicht erst nach dem alten Intervall."""
+
+    def test_shorter_interval_takes_effect_at_once(self):
+        self.state.set_record_interval(60)
+        self.recorder = Recorder(self.state, outdir=self.tmp, tick=0.02)
+        self.recorder.start()
+        self.state.local = True
+        time.sleep(0.3)
+        self.assertEqual(_csv_rows(self.tmp), [])
+        self.state.set_record_interval(0.2)
+        self.assertTrue(_wait_for(lambda: _csv_rows(self.tmp), timeout=1.5),
+                        'neues Messintervall wirkt nicht')
+
+    def test_next_point_is_announced(self):
+        self.state.set_record_interval(30)
+        self.recorder = Recorder(self.state, outdir=self.tmp, tick=0.02)
+        self.recorder.start()
+        self.assertTrue(_wait_for(lambda: self.state.next_point_at() is not None))
+        self.assertAlmostEqual(self.state.next_point_at() - time.time(), 30, delta=1.0)
+        self.state.set_record_interval(10)
+        self.assertTrue(_wait_for(
+            lambda: abs(self.state.next_point_at() - time.time() - 10) < 1.0))
+
+
+class HistoryTest(RecorderTestCase):
+    """Der Verlauf fuer das Diagramm entsteht immer, nicht nur waehrend
+    einer Messung -- aber nur gespeicherte Punkte tragen recorded=True."""
+
+    def test_without_mode_points_are_a_preview(self):
+        self.start(record_interval=0.1)
+        self.assertTrue(_wait_for(lambda: len(self.state.history()) >= 2))
+        self.assertTrue(all(not p[4] for p in self.state.history()))
+        self.assertEqual(os.listdir(self.tmp), [])
+        point = self.state.history()[0]
+        self.assertAlmostEqual(point[0], time.time(), delta=5)
+        self.assertEqual(point[1:4], (12.3, 45.6, 0.1))
+
+    def test_with_mode_points_are_recorded(self):
+        self.start(record_interval=0.1)
+        self.state.local = True
+        self.assertTrue(_wait_for(lambda: len([p for p in self.state.history() if p[4]]) >= 2))
+        self.state.shutdown()
+        self.recorder.join(5)
+        recorded = [p for p in self.state.history() if p[4]]
+        # Jeder gespeicherte Punkt steht genau einmal in der Datei.
+        self.assertEqual(len(recorded), len(_csv_rows(self.tmp)))
+
+    def test_no_point_without_fresh_value(self):
+        """Ohne Sensor kein Punkt -- und ohne Modus auch kein Hinweis."""
+        self.state.set_measurement(1.0, 2.0, at=monotonic() - 100)
+        self.start(record_interval=0.05, max_age=10)
+        time.sleep(0.3)
+        self.assertEqual(self.state.history(), [])
+        self.assertEqual(self.state.error(), u'')
+
+    def test_failed_write_still_shows_the_value(self):
+        """Ein Schreibfehler laesst den Punkt im Diagramm, aber nicht als
+        gespeichert."""
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._open_files(recorder_module.MODE_LOCAL)
+        original = kml.write_csv
+
+        def broken(*args):
+            raise IOError('No space left on device')
+        kml.write_csv = broken
+        self.addCleanup(setattr, kml, 'write_csv', original)
+        self.assertRaises(IOError, rec._record_step)
+        self.assertEqual([p[4] for p in self.state.history()], [False])
+        self.assertEqual(self.state.session()['points'], 0)
+
+
+class PointIntervalTest(RecorderTestCase):
+    """Ein Punkt traegt die Fensterlaenge, ueber die er gemittelt hat --
+    das Diagramm erkennt daran Luecken und das Band "gespeichert"."""
+
+    def setUp(self):
+        RecorderTestCase.setUp(self)
+        self.t = 1000.0
+        saved = recorder_module._now
+        recorder_module._now = lambda: self.t
+        self.addCleanup(setattr, recorder_module, '_now', saved)
+
+    def _recorder(self, seconds):
+        self.state.set_record_interval(seconds)
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._start_window()
+        return rec
+
+    def test_regular_point_has_the_set_interval(self):
+        rec = self._recorder(5)
+        self.t += 5
+        rec._record_step()
+        self.assertEqual(self.state.history()[-1][3], 5)
+
+    def test_shortened_interval_point_spans_the_window(self):
+        """15 min -> 5 s nach 10 min: der sofort faellige Punkt mittelt
+        10 min, trug aber 5 s -- im Diagramm eine falsche Luecke."""
+        rec = self._recorder(900)
+        self.t += 600
+        self.state.set_record_interval(5)
+        rec._record_step()
+        self.assertAlmostEqual(self.state.history()[-1][3], 600)
+
+    def test_sleep_is_not_bridged(self):
+        """Schlief das Geraet, kamen keine Werte -- der Punkt danach darf
+        nicht so tun, als haette er die ganze Stunde gemittelt."""
+        rec = self._recorder(5)
+        self.t += 3600
+        self.state.set_measurement(1.0, 2.0)
+        rec._record_step()
+        self.assertEqual(self.state.history()[-1][3], 5)
+
+    def test_shortened_after_sleep_is_capped_too(self):
+        rec = self._recorder(900)
+        self.t += 3600
+        self.state.set_record_interval(5)
+        rec._record_step()
+        self.assertAlmostEqual(self.state.history()[-1][3], 900)
+
+    def test_hanging_upload_is_part_of_the_window(self):
+        """Waehrend eines haengenden Uploads kamen die Sensorwerte weiter;
+        der Punkt danach mittelt sie und traegt die echte Laenge."""
+        def slow(url, body, headers, timeout=None):
+            self.t += 15
+            return 201
+        recorder_module.post_json = slow
+        rec = self._recorder(5)
+        self.t += 2
+        rec._push()
+        rec._record_step()
+        self.assertAlmostEqual(self.state.history()[-1][3], 17)
+        # Das naechste Fenster ist wieder normal.
+        rec._advance_window()
+        self.t += 5
+        rec._record_step()
+        self.assertEqual(self.state.history()[-1][3], 5)
+
+
+class FlushWindowTest(RecorderTestCase):
+    """Stop, Moduswechsel und Beenden verwarfen das angefangene
+    Intervall -- bei 15 min bis zu 15 min Messung, und eine kurze Messung
+    hinterliess gar keine Datei."""
+
+    def _measure(self, **kwargs):
+        self.start(record_interval=60, **kwargs)
+        self.state.local = True
+        self.assertTrue(_wait_for(lambda: self.state.session() is not None))
+        started = time.time()
+        for pm_25, pm_10 in ((10.0, 20.0), (30.0, 40.0)):
+            self.state.set_measurement(pm_25, pm_10)
+        time.sleep(0.2)
+        return started
+
+    def _wait_stopped(self):
+        self.assertTrue(_wait_for(lambda: not self.state.session()['active']))
+
+    def test_stop_writes_the_started_window(self):
+        started = self._measure()
+        self.state.set_status(u'Aufzeichnung inaktiv.')
+        self.state.local = False
+        self._wait_stopped()
+        rows = _csv_rows(self.tmp)
+        self.assertEqual([r.split(';')[1:3] for r in rows], [[u'20,0', u'30,0']], rows)
+        session = self.state.session()
+        self.assertEqual(session['points'], 1)
+        self.assertTrue(session['file'])
+        point = self.state.history()[-1]
+        self.assertTrue(point[4])
+        # Traegt die echte Laenge, nicht 60 s: das Band "gespeichert"
+        # beginnt nicht vor der Messung.
+        self.assertLess(point[3], time.time() - started + 0.5)
+        # Der Statustext der Oberflaeche nach dem Stop bleibt stehen.
+        self.assertEqual(self.state.status(), u'Aufzeichnung inaktiv.')
+
+    def test_switch_writes_the_started_window(self):
+        self._measure()
+        self.state.recording = True
+        self.state.local = False
+        self.assertTrue(_wait_for(lambda: self.state.session()['mode']
+                                  == recorder_module.MODE_TRIP))
+        self.assertEqual(len(_csv_rows(self.tmp)), 1)
+
+    def test_shutdown_writes_the_started_window(self):
+        self._measure()
+        self.state.shutdown()
+        self.recorder.join(5)
+        self.assertEqual(len(_csv_rows(self.tmp)), 1)
+        self.assertFalse(self.state.session()['active'])
+
+    def test_empty_window_writes_nothing(self):
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._open_files(recorder_module.MODE_LOCAL)
+        rec._start_window()
+        rec._close_files()
+        self.assertEqual(os.listdir(self.tmp), [])
+
+    def test_write_error_still_closes_the_kml(self):
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._open_files(recorder_module.MODE_TRIP)
+        rec._start_window()
+        rec._record_step()
+        self.state.set_measurement(20.0, 30.0)
+        original = kml.write_csv
+
+        def broken(*args):
+            raise IOError('No space left on device')
+        kml.write_csv = broken
+        self.addCleanup(setattr, kml, 'write_csv', original)
+        rec._close_files()
+        for name in (rec._fname_25, rec._fname_10):
+            with open(name, 'rb') as handle:
+                ElementTree.parse(handle)
+        self.assertIn(u'Aufzeichnung gestört', self.state.error())
+        self.assertFalse(self.state.session()['active'])
+
+    def test_write_error_on_stop_stays_visible(self):
+        """Den Fehler beim letzten Punkt raeumte der Stop gleich wieder
+        weg; er stand nur im Log."""
+        self._measure()
+        original = kml.write_csv
+
+        def broken(*args):
+            raise IOError('No space left on device')
+        kml.write_csv = broken
+        self.addCleanup(setattr, kml, 'write_csv', original)
+        self.state.local = False
+        self._wait_stopped()
+        time.sleep(0.2)
+        self.assertIn(u'Aufzeichnung gestört', self.state.error())
+
+
+class StationaryRecordingTest(RecorderTestCase):
+
+    def test_stationary_writes_its_own_csv_and_uploads(self):
+        self.start(record_interval=0.1, stat_interval=60)
+        self.state.stationary = True
+        self.assertTrue(_wait_for(lambda: self.posts and _csv_rows(self.tmp)))
+        files = os.listdir(self.tmp)
+        self.assertEqual(len(files), 1, files)
+        self.assertTrue(re.match(r'feinstaub_stationaer_\d{8}_\d\d_\d\d_\d\d\.csv$', files[0]),
+                        files)
+        self.assertTrue(any(p[4] for p in self.state.history()))
+        self.assertEqual(self.state.session()['mode'], recorder_module.MODE_STATIONARY)
+
+    def test_upload_info(self):
+        self.start(record_interval=0.1, stat_interval=60)
+        self.state.stationary = True
+        self.assertTrue(_wait_for(lambda: (self.state.upload_info() or {}).get('last_at')))
+        info = self.state.upload_info()
+        self.assertTrue(info['last_ok'])
+        self.assertIn(u'übertragen', info['last_message'])
+        self.assertAlmostEqual(info['next_at'] - time.time(), 60, delta=2)
+        # Nach dem Ausschalten ist kein Upload mehr geplant.
+        self.state.stationary = False
+        self.assertTrue(_wait_for(lambda: self.state.upload_info()['next_at'] is None))
+        self.assertTrue(self.state.upload_info()['last_ok'])
+
+    def test_failed_upload_is_reported(self):
+        recorder_module.post_json = lambda url, body, headers, timeout=30: 500
+        rec = Recorder(self.state, outdir=self.tmp)
+        self.assertTrue(rec._push_step())
+        info = self.state.upload_info()
+        self.assertFalse(info['last_ok'])
+        self.assertIn(u'Status Code 500', info['last_message'])
+
+    def test_stale_hint_does_not_flicker(self):
+        """Stationaer wird aufgezeichnet und hochgeladen. Mit zwei
+        verschiedenen Hinweisen wechselte der Text bei jedem Schritt und
+        landete jedes Mal neu im Log."""
+        self.state.set_measurement(1.0, 2.0, at=monotonic() - 100)
+        rec = Recorder(self.state, outdir=self.tmp, max_age=10)
+        rec._open_files(recorder_module.MODE_STATIONARY)
+        rec._record_step()
+        after_record = self.state.error()
+        self.assertFalse(rec._push_step())
+        self.assertEqual(self.state.error(), after_record)
+        self.assertIn(u'nichts aufgezeichnet', after_record)
+        self.assertIn(u'nichts hochgeladen', after_record)
+
+
+class SessionTest(RecorderTestCase):
+
+    def test_session_follows_the_recording(self):
+        self.state.set_place(u'Halle')
+        rec = Recorder(self.state, outdir=self.tmp, clock=lambda: 1000.0)
+        rec._open_files(recorder_module.MODE_LOCAL)
+        session = self.state.session()
+        self.assertEqual(session['mode'], recorder_module.MODE_LOCAL)
+        self.assertTrue(session['active'])
+        self.assertEqual(session['started'], 1000.0)
+        self.assertIsNone(session['ended'])
+        self.assertEqual(session['points'], 0)
+        self.assertIsNone(session['avg_pm25'])
+        self.assertTrue(session['file'].startswith(u'feinstaub_halle_'), session)
+        self.assertEqual(session['place'], u'Halle')
+
+        rec._start_window()
+        self.state.set_measurement(10.0, 20.0)
+        rec._record_step()
+        rec._start_window()
+        self.state.set_measurement(20.0, 30.0)
+        rec._record_step()
+        session = self.state.session()
+        self.assertEqual(session['points'], 2)
+        self.assertAlmostEqual(session['avg_pm25'], 15.0)
+        self.assertAlmostEqual(session['avg_pm10'], 25.0)
+        self.assertEqual(self.state.status(), u'Mittelwerte: 25.0, 15.0')
+
+        rec._close_files()
+        session = self.state.session()
+        self.assertFalse(session['active'])
+        self.assertEqual(session['ended'], 1000.0)
+        self.assertEqual(session['points'], 2)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, session['file'])))
+
+    def test_trip_session_has_no_place(self):
+        self.state.set_place(u'Halle')
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._open_files(recorder_module.MODE_TRIP)
+        self.assertEqual(self.state.session()['place'], u'')
+
+    def test_session_without_points_names_no_file(self):
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._open_files(recorder_module.MODE_TRIP)
+        rec._close_files()
+        self.assertEqual(self.state.session()['file'], u'')
+
+    def test_stop_ends_the_session(self):
+        self.start(record_interval=0.1)
+        self.state.recording = True
+        self.assertTrue(_wait_for(lambda: (self.state.session() or {}).get('points')))
+        self.assertTrue(self.state.session()['active'])
+        self.state.recording = False
+        self.assertTrue(_wait_for(lambda: not self.state.session()['active']))
+        self.assertIsNotNone(self.state.session()['ended'])
 
 
 class HostTest(unittest.TestCase):

@@ -121,6 +121,22 @@ def color_selection_rgb(value, pm):
 
   return color
 
+# Einstufung fuer die Weboberflaeche, nach denselben Schwellen wie
+# color_selection_rgb: 'good', 'elevated' (PM10 ab 40, PM2,5 ab 25) oder
+# 'high' (ab 50). Unbekanntes pm, None oder negativer Wert ergibt 'none'.
+_ELEVATED_FROM = {'pm_10': 40, 'pm_25': 25}
+
+
+def level(value, pm):
+  elevated = _ELEVATED_FROM.get(pm)
+  if elevated is None or value is None or value < 0:
+    return 'none'
+  if 50 <= value:
+    return 'high'
+  if elevated <= value:
+    return 'elevated'
+  return 'good'
+
 # Erste Zeile jeder CSV-Datei. Ohne Umlaut: Excel liest UTF-8 ohne BOM
 # als ANSI.
 CSV_HEADER = u'Zeit;PM2.5;PM10;Breite;Laenge'

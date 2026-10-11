@@ -4,12 +4,15 @@
 GPS-, Sensor- und Aufzeichnungs-Thread schreiben hinein; die Request-
 Threads des Webservers lesen ihn, schalten die Modi und setzen den
 Verbindungswunsch. Messwerte, Position, Anzeige und Verbindung laufen
-deshalb ueber einen Lock. Dazu die Zeithelfer utcnow und monotonic fuer
-Python 2 und 3.
+deshalb ueber einen Lock. Der Recorder legt hier ausserdem den Verlauf
+der Intervall-Mittelwerte ab, aus dem webapp.py das Diagramm zeichnet,
+und beschreibt die laufende Aufzeichnung und den Upload. Dazu die
+Zeithelfer utcnow und monotonic fuer Python 2 und 3.
 """
 
 from __future__ import absolute_import
 
+import collections
 import datetime
 import threading
 import time
@@ -42,9 +45,14 @@ def utcnow():
 
 
 class AppState(object):
-    """Thread-sicherer Zustand der App; main.py legt genau eine Instanz an."""
+    """Thread-sicherer Zustand der App; main.py legt genau eine Instanz an.
 
-    def __init__(self):
+    record_interval: Messintervall in Sekunden zu Beginn. history_size:
+    so viele Punkte behaelt der Verlauf. main.py uebergibt die Werte aus
+    config.py; die Standardwerte hier gelten nur fuer Tests.
+    """
+
+    def __init__(self, record_interval=5, history_size=4320):
         self._lock = threading.Lock()
         # Laufzeit-Flaggen: einfache Attribute ohne Lock (bool-Zuweisungen
         # sind atomar). Dass immer nur ein Modus laeuft, stellt webapp.py
@@ -88,6 +96,24 @@ class AppState(object):
         # Freitext fuer die lokale Messung, landet im Dateinamen.
         self._place = u''
 
+        # Laufende Summen ueber alle Messwerte seit dem Start, fuer
+        # Fenster-Mittelwerte (siehe sample_totals).
+        self._samples_n = 0
+        self._sum_25 = 0.0
+        self._sum_10 = 0.0
+        # So oft mittelt, speichert und zeichnet der Recorder (Sekunden).
+        self._record_interval = record_interval
+        # Verlauf: Tupel (epoch, pm_25, pm_10, interval, recorded), der
+        # aelteste faellt heraus, wenn der Puffer voll ist. history_rev
+        # zaehlt mit, damit die Oberflaeche nur bei Neuem nachlaedt.
+        self._history = collections.deque(maxlen=history_size)
+        self._history_rev = 0
+        # Laufende oder letzte Aufzeichnung, Stand des Uploads und der
+        # naechste Punkt -- nur fuer die Anzeige, der Recorder pflegt sie.
+        self._session = None
+        self._upload_info = None
+        self._next_point_at = None
+
     # -- Messwerte ----------------------------------------------------
     def set_measurement(self, pm_25, pm_10, at=None):
         """Neuen Messwert speichern; at (monotonic) nur fuer Tests."""
@@ -95,6 +121,20 @@ class AppState(object):
             self._pm_25 = pm_25
             self._pm_10 = pm_10
             self._pm_at = monotonic() if at is None else at
+            self._samples_n += 1
+            self._sum_25 += pm_25
+            self._sum_10 += pm_10
+
+    def sample_totals(self):
+        """(Anzahl, Summe PM2.5, Summe PM10) aller Messwerte seit dem Start.
+
+        Wer mitteln will, merkt sich den Stand zu Beginn seines Fensters;
+        der Mittelwert ist dann (Summe jetzt - Summe damals) / (Anzahl
+        jetzt - Anzahl damals). So laufen beliebig viele Fenster
+        nebeneinander (Aufzeichnung und Upload), ohne sich zu stoeren.
+        """
+        with self._lock:
+            return (self._samples_n, self._sum_25, self._sum_10)
 
     def measurement_age(self, now=None):
         """Sekunden seit dem letzten Messwert, None ohne Messwert.
@@ -209,6 +249,71 @@ class AppState(object):
         with self._lock:
             return self._place
 
+    # -- Messintervall -------------------------------------------------
+    def set_record_interval(self, seconds):
+        with self._lock:
+            self._record_interval = seconds
+
+    def record_interval(self):
+        """Messintervall in Sekunden."""
+        with self._lock:
+            return self._record_interval
+
+    # -- Verlauf --------------------------------------------------------
+    def add_history_point(self, epoch, pm_25, pm_10, interval, recorded):
+        """Haengt einen Intervall-Mittelwert an den Verlauf.
+
+        epoch: Wanduhr (time.time()), interval: Sekunden, ueber die
+        gemittelt wurde, recorded: True, wenn der Punkt auch in einer
+        Datei steht.
+        """
+        point = (float(epoch), pm_25, pm_10, interval, bool(recorded))
+        with self._lock:
+            self._history.append(point)
+            self._history_rev += 1
+
+    def history(self, since=None):
+        """Punkte des Verlaufs als Liste, aelteste zuerst; mit since nur
+        die mit epoch >= since."""
+        with self._lock:
+            if since is None:
+                return list(self._history)
+            return [point for point in self._history if point[0] >= since]
+
+    def history_rev(self):
+        """Zaehler, der mit jedem neuen Punkt im Verlauf steigt."""
+        with self._lock:
+            return self._history_rev
+
+    # -- Aufzeichnung, Upload, naechster Punkt -------------------------
+    def set_session(self, info):
+        """Laufende oder letzte Aufzeichnung als dict (siehe Recorder),
+        None = noch keine. Gespeichert wird eine Kopie."""
+        with self._lock:
+            self._session = None if info is None else dict(info)
+
+    def session(self):
+        with self._lock:
+            return None if self._session is None else dict(self._session)
+
+    def set_upload_info(self, info):
+        """Stand des Uploads im stationaeren Modus als dict, None = keiner."""
+        with self._lock:
+            self._upload_info = None if info is None else dict(info)
+
+    def upload_info(self):
+        with self._lock:
+            return None if self._upload_info is None else dict(self._upload_info)
+
+    def set_next_point_at(self, epoch):
+        """Wann der naechste Punkt faellig ist (Wanduhr) oder None."""
+        with self._lock:
+            self._next_point_at = epoch
+
+    def next_point_at(self):
+        with self._lock:
+            return self._next_point_at
+
     # -- Fuer die /status/-Route --------------------------------------
     def snapshot(self):
         """Ein konsistenter Blick auf alles, was das Frontend braucht."""
@@ -232,6 +337,12 @@ class AppState(object):
                 'connection_wanted': self.connection_wanted,
                 'device': self._device,
                 'device_name': self._device_name,
+                'record_interval': self._record_interval,
+                'history_rev': self._history_rev,
+                'session': None if self._session is None else dict(self._session),
+                'upload_info': (None if self._upload_info is None
+                                else dict(self._upload_info)),
+                'next_point_at': self._next_point_at,
             }
 
     # -- Lebenszyklus -------------------------------------------------

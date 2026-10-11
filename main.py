@@ -27,12 +27,27 @@ import config
 import gps
 import kml
 import sensor
+import settings
 import transport
 import webapp
 from logging_util import rotate_logfile, to_text, write_log
 from recorder import Recorder
 from server import StoppableWSGIRefServer
 from state import AppState
+
+
+def apply_settings(state, stored):
+    """Uebernimmt gespeicherte Einstellungen (dict aus settings.load())
+    in den AppState. Ein Messintervall, das nicht (mehr) zur Wahl steht,
+    bleibt unbeachtet; dann gilt RECORD_INT."""
+    seconds = stored.get('record_interval')
+    # bool ist in Python ein int: True == 1 soll nicht durchrutschen.
+    if isinstance(seconds, bool) or seconds not in config.RECORD_INT_CHOICES:
+        if seconds is not None:
+            write_log(0, u'Gespeichertes Messintervall ungueltig: {0}'.format(to_text(seconds)))
+        return
+    state.set_record_interval(int(seconds))
+    write_log(1, u'Messintervall aus den Einstellungen: {0} s'.format(int(seconds)))
 
 
 def build_threads(state):
@@ -62,7 +77,9 @@ def main():
     for name in kml.repair_unclosed_kml(config.OUTDIR):
         write_log(1, u'Offene KML-Datei abgeschlossen: {0}'.format(to_text(name)))
 
-    state = AppState()
+    state = AppState(record_interval=config.RECORD_INT,
+                     history_size=config.HISTORY_SIZE)
+    apply_settings(state, settings.load())
 
     droid = None
     if config.on_android():
