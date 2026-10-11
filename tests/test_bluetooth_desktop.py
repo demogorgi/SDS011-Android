@@ -10,6 +10,7 @@ sich erst am Geraet.
 from __future__ import absolute_import
 
 import os
+import re
 import socket
 import unittest
 
@@ -57,8 +58,11 @@ class ParseTest(unittest.TestCase):
 
     def test_non_device_entries_are_ignored(self):
         devices = bd.parse_windows_devices(WINDOWS_OUTPUT)
+        # re.match statt assertRegex: das heisst unter Python 2.7 noch
+        # assertRegexpMatches.
         for entry in devices:
-            self.assertRegex(entry['id'], r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')
+            self.assertTrue(re.match(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$', entry['id']),
+                            entry['id'])
 
     def test_linux_parsing(self):
         devices = bd.parse_linux_devices(LINUX_OUTPUT)

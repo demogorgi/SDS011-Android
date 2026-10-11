@@ -68,9 +68,11 @@ class RotateLogfileTest(unittest.TestCase):
 class CoordinateFormatTest(unittest.TestCase):
 
     def test_no_float_noise(self):
-        """str(51.4385 + 0.0002 * 3) liefert 51.439099999999996."""
+        """repr(51.4385 + 0.0002 * 3) liefert 51.439099999999996. Nicht
+        str(): das kuerzt unter Python 2.7 auf 12 Stellen und zeigt das
+        Rauschen gar nicht."""
         value = 51.4385 + 0.0002 * 3
-        self.assertIn('99999', str(value))
+        self.assertIn('99999', repr(value))
         self.assertEqual(_coord(value), '51.439100')
 
     def test_precision_is_six_decimals(self):
