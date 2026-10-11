@@ -8,12 +8,14 @@
   <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#0d0d0d">
   <title>Feinstaub</title>
-  <!-- Kein Favicon: spart dem einfaedrigen Server die 404-Anfrage. -->
-  <link rel="icon" href="data:,">
+  <!-- Dasselbe Bildzeichen wie in der Kopfzeile, fuer den Tab am PC. -->
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <!-- Alles liegt lokal in /static -- unterwegs gibt es oft kein Netz. -->
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
+<!-- data-open-external: Links oeffnet der Server im Browser des Systems
+     (Android, siehe /open/); sonst sind es gewoehnliche Links. -->
+<body data-open-external="{{1 if get('open_external', False) else 0}}">
 
 <header class="appbar">
   <div class="appbar-inner">
@@ -119,6 +121,27 @@
         <span class="gps-coords tnum" id="gpsCoords"></span>
       </div>
     </div>
+    <!-- Schwellen wie kml.level() -->
+    <details class="levels" id="levelsInfo">
+      <summary>Was bedeuten die Stufen?</summary>
+      <div class="levels-body">
+        <table class="levels-table">
+          <thead>
+            <tr><th scope="col">Stufe</th><th scope="col">PM<sub>2.5</sub></th><th scope="col">PM<sub>10</sub></th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="level" data-level="good">gut</span></td><td class="tnum">unter 25</td><td class="tnum">unter 40</td></tr>
+            <tr><td><span class="level" data-level="elevated">erhöht</span></td><td class="tnum">25 bis 50</td><td class="tnum">40 bis 50</td></tr>
+            <tr><td><span class="level" data-level="high">hoch</span></td><td class="tnum">ab 50</td><td class="tnum">ab 50</td></tr>
+          </tbody>
+        </table>
+        <p class="help">Werte in µg/m³. Die Schwellen sind EU-Grenzwerte: 25 und 40 µg/m³
+          gelten für das Jahresmittel von PM<sub>2.5</sub> und PM<sub>10</sub>, 50 µg/m³ für das
+          Tagesmittel von PM<sub>10</sub>. Ein einzelner Messwert darüber ist also noch kein
+          Verstoß, zeigt aber, wie stark die Luft gerade belastet ist.</p>
+        <a class="ext-link" href="{{links['uba']}}" data-link="uba" target="_blank" rel="noopener">Mehr beim Umweltbundesamt<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+      </div>
+    </details>
   </section>
 
   <!-- Verlauf: das Diagramm zeichnet der Server (/chart.svg) -->
@@ -226,9 +249,12 @@
 
       <div class="note note-warn" id="statWarn" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9L1.8 18.5a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.5M12 17.5v.01"/></svg>
+        <div>
         <p><strong>Öffentlicher Upload.</strong> Die Werte gehen <span class="js-stat-every">alle paar Minuten</span>
           an sensor.community (luftdaten.info) und erscheinen dort unter der Sensor-ID
           <b class="mono">{{xsensor}}</b>. Nur am vereinbarten Standort starten.</p>
+          <a class="ext-link" href="{{links['karte']}}" data-link="karte" target="_blank" rel="noopener">Sensor auf der Karte ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+        </div>
       </div>
     </div>
 
@@ -261,6 +287,7 @@
         <div>
           <div id="uploadLast">Noch kein Upload</div>
           <div class="upload-next tnum" id="uploadNext"></div>
+          <a class="ext-link" href="{{links['karte']}}" data-link="karte" target="_blank" rel="noopener">Sensor auf der Karte ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
         </div>
       </div>
       <div class="file-row">Datei <span class="mono" id="sessionFile">–</span></div>
@@ -293,10 +320,6 @@
         <dd class="mono" id="outdirText">{{outdir}}</dd>
       </div>
     </dl>
-    <ul class="links">
-      <li><a href="https://deutschland.maps.sensor.community/#16/51.4385/6.7882" target="_blank" rel="noopener">Karte sensor.community<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a></li>
-      <li><a href="https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub" target="_blank" rel="noopener">Grenzwerte Umweltbundesamt<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a></li>
-    </ul>
   </footer>
 </main>
 

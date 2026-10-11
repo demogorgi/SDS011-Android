@@ -1026,6 +1026,42 @@
     }, TOAST_MS);
   }
 
+  // -- Externe Links ---------------------------------------------------
+  // Das WebView von QPython oeffnet keine neuen Fenster: ein Klick auf
+  // einen Link mit target="_blank" verpufft dort. Unter Android oeffnet
+  // deshalb der Server den Link per Intent im Browser des Systems
+  // (/open/). Am PC bleibt es ein gewoehnlicher Link.
+  function linkFrom(node) {
+    while (node && node !== document) {
+      if (node.nodeName === 'A' && node.getAttribute('data-link')) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function onLinkClick(event) {
+    if (document.body.getAttribute('data-open-external') !== '1') {
+      return;
+    }
+    var link = linkFrom(event.target);
+    if (!link) {
+      return;
+    }
+    event.preventDefault();
+    request('/open/?link=' + encodeURIComponent(link.getAttribute('data-link')),
+            function (data) {
+              if (data.opened) {
+                toast(data.value || 'Im Browser geöffnet.', '');
+              } else {
+                toast(data.value || 'Link konnte nicht geöffnet werden.', 'error');
+              }
+            }, function () {
+              toast('Link konnte nicht geöffnet werden.', 'error');
+            });
+  }
+
   // -- Start -----------------------------------------------------------
   function restore() {
     var range = parseInt(storageGet(STORE_RANGE), 10);
@@ -1055,6 +1091,7 @@
       command('/disconnect/', this, 'Trennen konnte nicht gesendet werden.');
     });
     byId('reloadDevices').addEventListener('click', loadDevices);
+    document.addEventListener('click', onLinkClick);
 
     byId('startBtn').addEventListener('click', onStart);
     byId('stopBtn').addEventListener('click', onStop);

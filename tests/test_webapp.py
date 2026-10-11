@@ -728,5 +728,84 @@ class StatusFieldsTest(unittest.TestCase):
         self.assertIsNone(self.status()['upload']['next_in'])
 
 
+
+class OpenLinkTest(unittest.TestCase):
+    """/open/: das WebView von QPython oeffnet keine neuen Fenster, also
+    oeffnet der Server die Links unter Android im Browser des Systems."""
+
+    def setUp(self):
+        self.opened = []
+        self.app = webapp.create_app(AppState(), open_url=self.opened.append)
+
+    def test_opens_known_link(self):
+        status, body = call(self.app, '/open/?link=uba')
+        self.assertTrue(status.startswith('200'), status)
+        self.assertTrue(body['opened'])
+        self.assertEqual(self.opened, [config.LINKS['uba']])
+
+    def test_refuses_unknown_name_and_raw_urls(self):
+        """Nur Namen aus config.LINKS -- sonst koennte jede Seite, die den
+        Server erreicht, beliebige Adressen auf dem Handy oeffnen."""
+        for query in ('link=gibtsnicht', 'link=https%3A%2F%2Fexample.com', 'link=', ''):
+            status, body = call(self.app, '/open/?' + query)
+            self.assertTrue(status.startswith('200'), status)
+            self.assertTrue(body['refused'], query)
+            self.assertFalse(body['opened'], query)
+        self.assertEqual(self.opened, [])
+
+    def test_without_opener_the_browser_follows_the_link(self):
+        """Am PC gibt es keinen Opener: die Route oeffnet nichts und nennt
+        nur die Adresse."""
+        status, body = call(webapp.create_app(AppState()), '/open/?link=karte')
+        self.assertFalse(body['opened'])
+        self.assertNotIn('refused', body)
+        self.assertEqual(body['url'], config.LINKS['karte'])
+
+    def test_failure_is_reported(self):
+        def broken(url):
+            raise RuntimeError('kein Browser')
+        status, body = call(webapp.create_app(AppState(), open_url=broken), '/open/?link=uba')
+        self.assertTrue(status.startswith('200'), status)
+        self.assertTrue(body['refused'])
+        self.assertIn(u'kein Browser', body['value'])
+
+    def test_index_tells_the_page_whether_to_use_the_route(self):
+        _status, body = call(self.app, '/')
+        self.assertIn(b'data-open-external="1"', body)
+        _status, body = call(webapp.create_app(AppState()), '/')
+        self.assertIn(b'data-open-external="0"', body)
+
+
+class UrlOpenerTest(unittest.TestCase):
+    """main.make_url_opener: droid.view() schickt die Adresse als Intent
+    an Android und meldet Fehler im Ergebnis, nicht als Ausnahme."""
+
+    class FakeDroid(object):
+        def __init__(self, error=None):
+            self.viewed = []
+            self.error = error
+
+        def view(self, url):
+            self.viewed.append(url)
+
+            class Result(object):
+                pass
+            result = Result()
+            result.id, result.result, result.error = 1, None, self.error
+            return result
+
+    def test_passes_url_to_droid_view(self):
+        import main
+        droid = self.FakeDroid()
+        main.make_url_opener(droid)(config.LINKS['uba'])
+        self.assertEqual(droid.viewed, [config.LINKS['uba']])
+
+    def test_android_error_becomes_exception(self):
+        import main
+        opener = main.make_url_opener(self.FakeDroid(error=u'No Activity found'))
+        with self.assertRaises(RuntimeError):
+            opener(config.LINKS['uba'])
+
+
 if __name__ == '__main__':
     unittest.main()

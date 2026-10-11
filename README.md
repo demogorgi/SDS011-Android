@@ -85,7 +85,14 @@ laufender Verbindungsversuch wird noch zu Ende gebracht.
 *hoch* (dieselben Stufen wie die Farben der KML: PM2.5 erhöht ab 25, PM10
 ab 40, beide hoch ab 50), dazu das Alter des Werts. Ist er älter als
 `MAX_MEASUREMENT_AGE`, steht dort *veraltet*. Die Seite fragt alle 2 s
-den Zustand ab.
+den Zustand ab. *Was bedeuten die Stufen?* klappt darunter die Schwellen
+auf, mit Herkunft (EU-Grenzwerte) und Link zum Umweltbundesamt.
+
+**Links:** Das WebView von QPython öffnet keine neuen Fenster, ein Tippen
+auf einen Link liefe ins Leere. Unter Android öffnet die App die Links
+deshalb selbst im Browser des Systems (Route `/open/`, über
+`droid.view()`); erlaubt sind nur die Adressen aus `LINKS` in `config.py`.
+Am PC sind es gewöhnliche Links.
 
 **Messintervall:** In der Karte *Messung* wählbar, von 5 s bis 15 min
 (`RECORD_INT_CHOICES`). Der Sensor liefert etwa einen Wert pro Sekunde; die
@@ -131,7 +138,8 @@ beenden.“
 
 Während einer Messung zeigt die Karte *Messung* Laufzeit, Zahl der Punkte,
 die Mittelwerte seit Start, den Dateinamen und im stationären Modus den
-letzten und den nächsten Upload. Nach dem Stoppen bleibt eine
+letzten und den nächsten Upload, dazu einen Link zum eigenen Sensor auf
+der Karte von sensor.community. Nach dem Stoppen bleibt eine
 Zusammenfassung stehen. Beim Stoppen, beim Wechsel des Modus und beim
 Beenden kommt das angefangene Intervall als letzte, kürzere Zeile in die
 Datei.
@@ -263,6 +271,7 @@ KONFIGURATIONSOPTIONEN*:
 | `SDS011_BLUETOOTH_DEVICE_ID` | `00:14:03:05:59:17` | MAC des eigenen Moduls, vorgewählt bzw. Rückfall, wenn keine Geräteliste kommt |
 | `XSENSOR` | `raspi-…` | Sensor-ID bei luftdaten.info |
 | `LUFTDATEN_URL` | `https://api.luftdaten.info/v1/push-sensor-data/` | Upload-Adresse |
+| `LINKS` | Karte sensor.community, Grenzwerte Umweltbundesamt | externe Seiten der Oberfläche; die Karte auf den eigenen Standort zentrieren |
 | `HTTP_HOST` | `127.0.0.1` | Adresse des Webservers (überschreibbar per `SDS011_HOST`) |
 | `HTTP_PORT` | `8080` | Port des Webservers (überschreibbar per `SDS011_PORT`) |
 | `ANDROID_OUTDIR` | `/storage/emulated/0/Download/Feinstaub` | Ausgabeverzeichnis unter Android, `None` für `output/` (überschreibbar per `SDS011_OUTDIR`) |
@@ -370,3 +379,4 @@ aus. Die Hardware steckt hinter `transport.Transport` und
 | `main.py` | startet und verdrahtet alles, beendet sauber | config, gps, kml, sensor, settings, transport, webapp, logging_util, recorder, server, state |
 | `views/index.html` | Oberfläche (Markup, bottle-Template) | – |
 | `static/app.js`, `static/app.css` | Verhalten und Aussehen der Oberfläche, ES5 ohne Bibliotheken (altes Android-WebView) | – |
+| `static/favicon.svg` | Bildzeichen für den Browser-Tab | – |

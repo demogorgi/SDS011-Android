@@ -71,6 +71,14 @@ SDS011_BLUETOOTH_DEVICE_ID = '00:14:03:05:59:17'
 # https://deutschland.maps.sensor.community/#16/51.4385/6.7882
 XSENSOR = 'raspi-00000000a5c85ba8'
 LUFTDATEN_URL = 'https://api.luftdaten.info/v1/push-sensor-data/'
+# Externe Seiten, die die Oberflaeche verlinkt: die Karte (auf den
+# Standort des eigenen Sensors zentriert) und die Grenzwerte beim
+# Umweltbundesamt. Unter Android oeffnet sie die App im Browser des
+# Systems -- das WebView von QPython oeffnet keine neuen Fenster.
+LINKS = {
+    'karte': 'https://deutschland.maps.sensor.community/#16/51.4385/6.7882',
+    'uba': 'https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub',
+}
 
 # Nur auf dem Geraet selbst erreichbar. Mit 0.0.0.0 koennte jeder im
 # selben WLAN die GPS-Position lesen, die App beenden oder den

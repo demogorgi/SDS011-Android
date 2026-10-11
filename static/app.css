@@ -178,7 +178,7 @@ sub {
 .banner-icon,
 .meta-icon,
 .upload svg,
-.links svg {
+.ext-link svg {
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -512,7 +512,8 @@ sub {
 .btn:focus,
 .icon-btn:focus,
 .seg button:focus,
-.links a:focus {
+.ext-link:focus,
+.levels summary:focus {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -520,7 +521,8 @@ sub {
 .btn:focus:not(:focus-visible),
 .icon-btn:focus:not(:focus-visible),
 .seg button:focus:not(:focus-visible),
-.links a:focus:not(:focus-visible) {
+.ext-link:focus:not(:focus-visible),
+.levels summary:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -1237,15 +1239,9 @@ sub {
 
 .info-row dd { margin: 0; }
 
-.links {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.links li { margin-bottom: 4px; }
-
-.links a {
+/* Externer Link (Grenzwerte, Karte). Unter Android oeffnet ihn der
+   Server im Browser des Systems, siehe app.js openLink(). */
+.ext-link {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
@@ -1256,14 +1252,84 @@ sub {
   text-underline-offset: 3px;
 }
 
-.links a:hover { text-decoration-color: var(--text); }
+.ext-link:hover { text-decoration-color: var(--text); }
 
-.links svg {
+/* Spezifischer als .note svg / .upload svg, die sonst das Pfeilchen
+   wie ein Kartensymbol aufblasen. */
+.ext-link svg.ext-icon {
   width: 16px;
   height: 16px;
-  margin-left: 4px;
+  margin: 0 0 0 4px;
   color: var(--muted);
 }
+
+.note .ext-link,
+.upload .ext-link {
+  min-height: 36px;
+  margin-top: 4px;
+}
+
+/* -- Was bedeuten die Stufen? ------------------------------------------ */
+.levels {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.levels summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.levels summary::-webkit-details-marker { display: none; }
+
+/* Eigener Pfeil: der Standard-Marker sieht in jedem WebView anders aus. */
+.levels summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin: -4px 4px 0 auto;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+.levels[open] summary::after {
+  margin-top: 4px;
+  -webkit-transform: rotate(-135deg);
+  transform: rotate(-135deg);
+}
+
+.levels-body { padding-bottom: 4px; }
+
+.levels-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.levels-table th {
+  padding: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.levels-table td {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.levels-table th + th,
+.levels-table td + td { padding-left: 12px; }
 
 /* -- Meldung unten (Toast) --------------------------------------------- */
 .toast {

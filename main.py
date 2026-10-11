@@ -36,6 +36,27 @@ from server import StoppableWSGIRefServer
 from state import AppState
 
 
+def make_url_opener(droid):
+    """Funktion, die eine Adresse im Browser des Systems oeffnet.
+
+    Das WebView von QPython ignoriert Links in ein neues Fenster
+    (target="_blank"); droid.view() schickt die Adresse dagegen als
+    Intent an Android. Der Lock haelt zwei gleichzeitige Klicks
+    auseinander -- die RPC-Verbindung zu QPython ist nicht dafuer gebaut.
+    Ein Fehler von Android wird als Ausnahme weitergereicht.
+    """
+    lock = threading.Lock()
+
+    def open_url(url):
+        with lock:
+            result = droid.view(url)
+        error = getattr(result, 'error', None)
+        if error:
+            raise RuntimeError(to_text(error))
+
+    return open_url
+
+
 def apply_settings(state, stored):
     """Uebernimmt gespeicherte Einstellungen (dict aus settings.load())
     in den AppState. Ein Messintervall, das nicht (mehr) zur Wahl steht,
@@ -137,7 +158,8 @@ def main():
     write_log(1, 'Threads gestartet')
 
     app = webapp.create_app(state, on_shutdown=shutdown,
-                            transport=sensor_transport)
+                            transport=sensor_transport,
+                            open_url=make_url_opener(droid) if droid is not None else None)
     try:
         bottle.run(app=app, server=srv)
     except KeyboardInterrupt:

@@ -118,12 +118,14 @@ def _upload_view(info, now):
 CHART_RANGES = (600, 3600, 21600, 0)
 
 
-def create_app(state, on_shutdown=None, transport=None):
+def create_app(state, on_shutdown=None, transport=None, open_url=None):
     """Die Bottle-App mit allen Routen bauen.
 
     state: der gemeinsame AppState. on_shutdown: wird von /__exit in
     einem eigenen Thread gerufen. transport: liefert die gekoppelten
     Geraete fuer /devices/ und /connect/; ohne ihn bleibt die Liste leer.
+    open_url: oeffnet eine Adresse im Browser des Systems (Android);
+    ohne sie bleiben die Links in der Oberflaeche gewoehnliche Links.
     """
     app = Bottle()
 
@@ -131,7 +133,30 @@ def create_app(state, on_shutdown=None, transport=None):
     def index():
         return template('index.html', template_lookup=TEMPLATE_LOOKUP,
                         xsensor=config.XSENSOR, outdir=config.OUTDIR,
-                        intervals=config.RECORD_INT_CHOICES)
+                        intervals=config.RECORD_INT_CHOICES,
+                        links=config.LINKS, open_external=open_url is not None)
+
+    @app.route('/open/')
+    def open_link():
+        """Oeffnet einen der Links aus config.LINKS im Browser des Systems.
+
+        Nur Namen, keine Adressen: sonst koennte jede Seite, die den
+        Server erreicht, beliebige Adressen auf dem Handy oeffnen."""
+        name = _query('link')
+        url = config.LINKS.get(name)
+        if url is None:
+            return {'value': u'Unbekannter Link.', 'refused': True, 'opened': False}
+        if open_url is None:
+            # Am PC oeffnet der Browser den Link selbst.
+            return {'value': u'', 'opened': False, 'url': url}
+        try:
+            open_url(url)
+        except Exception as exc:
+            write_log(0, u'Link nicht geoeffnet: {0}'.format(to_text(exc)))
+            return {'value': u'Browser ließ sich nicht öffnen: {0}'.format(to_text(exc)),
+                    'refused': True, 'opened': False, 'url': url}
+        write_log(1, u'Link im Browser geoeffnet: {0}'.format(url))
+        return {'value': u'Im Browser geöffnet.', 'opened': True, 'url': url}
 
     @app.route('/static/<filename:path>')
     def serve_static(filename):

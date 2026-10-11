@@ -60,7 +60,8 @@ def render_template(**extra):
 
     import webapp
 
-    values = {'xsensor': config.XSENSOR, 'outdir': config.OUTDIR}
+    values = {'xsensor': config.XSENSOR, 'outdir': config.OUTDIR,
+              'links': config.LINKS, 'open_external': False}
     values.update(extra)
     return template('index.html', template_lookup=webapp.TEMPLATE_LOOKUP, **values)
 
@@ -249,10 +250,49 @@ class TemplateTest(SearchMixin, unittest.TestCase):
         self.assertIn('{{xsensor}}', match.group(0))
 
     def test_info_links(self):
-        self.assertIn('https://deutschland.maps.sensor.community/#16/51.4385/6.7882', self.html)
-        self.assertIn('https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub',
-                      self.html)
+        """Die Links kommen aus config.LINKS und tragen data-link, damit
+        app.js sie unter Android ueber /open/ im Browser oeffnen kann --
+        das WebView von QPython ignoriert target="_blank"."""
+        html = render_template()
+        self.assertIn(config.LINKS['karte'], html)
+        self.assertIn(config.LINKS['uba'], html)
         self.assertIn('{{outdir}}', self.html)
+        for tag, attrs in self.tags:
+            if tag == 'a' and attrs.get('target') == '_blank':
+                self.assertIn(attrs.get('data-link'), config.LINKS,
+                              'externer Link ohne data-link: %s' % attrs.get('href'))
+
+    def test_map_link_at_stationary_mode(self):
+        """Die Karte gehoert zum stationaeren Modus: im Hinweis vor dem
+        Start und in der Upload-Anzeige waehrend der Messung."""
+        for block in ('statWarn', 'uploadInfo'):
+            match = re.search(r'id="%s".*?data-link="karte"' % block, self.html, re.S)
+            self.assertIsNotNone(match, 'Kartenlink fehlt in #%s' % block)
+
+    def test_open_external_flag(self):
+        self.assertIn('data-open-external="0"', render_template(open_external=False))
+        self.assertIn('data-open-external="1"', render_template(open_external=True))
+
+    def test_level_explanation_matches_kml_level(self):
+        """Die Tabelle "Was bedeuten die Stufen?" nennt dieselben
+        Schwellen, nach denen kml.level() einstuft."""
+        import kml
+
+        match = re.search(r'id="levelsInfo".*?</details>', self.html, re.S)
+        self.assertIsNotNone(match)
+        table = match.group(0)
+        for text in ('unter 25', 'unter 40', '25 bis 50', '40 bis 50', 'ab 50'):
+            self.assertIn(text, table)
+        self.assertIn('data-link="uba"', table)
+        self.assertEqual(kml.level(24.9, 'pm_25'), 'good')
+        self.assertEqual(kml.level(25, 'pm_25'), 'elevated')
+        self.assertEqual(kml.level(39.9, 'pm_10'), 'good')
+        self.assertEqual(kml.level(40, 'pm_10'), 'elevated')
+        self.assertEqual(kml.level(50, 'pm_25'), 'high')
+        self.assertEqual(kml.level(50, 'pm_10'), 'high')
+
+    def test_favicon_is_the_brand_mark(self):
+        self.assertIn('href="/static/favicon.svg"', self.html)
 
 
 class ScriptTest(SearchMixin, unittest.TestCase):
