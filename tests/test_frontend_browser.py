@@ -157,6 +157,25 @@ class BrowserTest(unittest.TestCase):
         self.assertIn(u'getrennt', conn['after_disconnect']['text'])
         self.assertEqual(conn['after_disconnect']['state'], 'off')
 
+    def test_theme_switch(self):
+        """Schalter: automatisch -> hell -> dunkel -> automatisch. Hell
+        und dunkel gelten fest, auch nach einem Neuladen; automatisch
+        folgt dem System (hier dunkel)."""
+        theme = self._phase('theme')['theme']
+        self.assertEqual(theme['start_mode'], 'auto')
+        modes = [step['mode'] for step in theme['cycle']]
+        self.assertEqual(modes, ['light', 'dark', 'auto'])
+        light, dark, auto = theme['cycle']
+        self.assertEqual(light['attr'], 'light')
+        self.assertEqual(light['bg'], '#f4f4f2')
+        self.assertEqual(light['bar'], '#f4f4f2')
+        self.assertEqual(dark['attr'], 'dark')
+        self.assertEqual(dark['bg'], '#0d0d0d')
+        self.assertIsNone(auto['attr'])
+        self.assertEqual(auto['bg'], theme['start_bg'])
+        self.assertIn(u'automatisch', auto['label'])
+        self.assertEqual(theme['after_reload'], {'attr': 'light', 'mode': 'light'})
+
     def test_simulation_is_visible(self):
         """Dieser Lauf nutzt SDS011_FAKE: die Werte sind erfunden, und
         das soll man sehen -- in der Pille und am Sensor."""

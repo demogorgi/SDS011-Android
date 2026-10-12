@@ -106,6 +106,12 @@ ab 40, beide hoch ab 50), dazu das Alter des Werts. Ist er älter als
 den Zustand ab. *Was bedeuten die Stufen?* klappt darunter die Schwellen
 auf, mit Herkunft (EU-Grenzwerte) und Link zum Umweltbundesamt.
 
+**Darstellung:** Hell oder dunkel folgt der Systemeinstellung. Der runde
+Schalter oben rechts wechselt zwischen *automatisch*, *hell* und *dunkel*;
+die Wahl merkt sich der Browser, pro Gerät. Nützlich auf Android 7 und
+älter, die keine systemweite Dunkel-Einstellung kennen, und draußen in der
+Sonne.
+
 **Links:** Das WebView von QPython öffnet keine neuen Fenster, ein Tippen
 auf einen Link liefe ins Leere. Unter Android öffnet die App die Links
 deshalb selbst im Browser des Systems (Route `/open/`, über

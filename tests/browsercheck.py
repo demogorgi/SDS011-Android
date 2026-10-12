@@ -459,6 +459,36 @@ async def collect():
             }
             server_get('/stopp/')
 
+        with Phase(result, 'theme'):
+            # Der Browser laeuft hier im Systemmodus "dunkel" (Standard).
+            bg = "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()"
+            theme = {'start_mode': await page.get_attribute('#themeBtn', 'data-mode'),
+                     'start_bg': await page.evaluate(bg)}
+            seen = []
+            for _ in range(3):
+                await page.click('#themeBtn')
+                seen.append({
+                    'mode': await page.get_attribute('#themeBtn', 'data-mode'),
+                    'attr': await page.evaluate(
+                        "document.documentElement.getAttribute('data-theme')"),
+                    'bg': await page.evaluate(bg),
+                    'bar': await page.get_attribute('#themeColor', 'content'),
+                    'label': await page.get_attribute('#themeBtn', 'aria-label'),
+                })
+            theme['cycle'] = seen
+            # Fest "hell" muss ein Neuladen ueberstehen.
+            await page.click('#themeBtn')
+            await page.reload(wait_until='domcontentloaded')
+            theme['after_reload'] = {
+                'attr': await page.evaluate(
+                    "document.documentElement.getAttribute('data-theme')"),
+                'mode': await page.get_attribute('#themeBtn', 'data-mode'),
+            }
+            # Zurueck auf automatisch fuer die folgenden Pruefungen.
+            await page.click('#themeBtn')
+            await page.click('#themeBtn')
+            result['theme'] = theme
+
         with Phase(result, 'polling_after'):
             # Nach all den Befehlen darf die Abfrage nicht gestapelt laufen.
             result['status_hits_after_in_6s'] = await count_status_requests(page, 6)

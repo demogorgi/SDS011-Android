@@ -1,7 +1,8 @@
 /* Oberflaeche der Feinstaub-App.
  *
  * Mobil zuerst (360-420 px), am PC eine zentrierte Spalte. Dunkel ist
- * Standard, hell folgt der Systemeinstellung. Alle Farben stehen als
+ * Standard, hell folgt der Systemeinstellung -- ausser, der Schalter in
+ * der Kopfzeile legt eines fest (data-theme an <html>). Alle Farben stehen als
  * Variablen in :root -- auch die --pmc-*, die das Diagramm vom Server
  * (/chart.svg) liest; so folgt es dem Theme der Seite.
  *
@@ -73,8 +74,10 @@
 }
 
 /* -- Farben: hell ------------------------------------------------------ */
+/* Nach Systemeinstellung, solange nicht fest "dunkel" gewaehlt ist
+   (Schalter in der Kopfzeile, data-theme an <html>). */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     color-scheme: light;
 
     --bg: #f4f4f2;
@@ -122,6 +125,58 @@
 
     --shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
   }
+}
+
+/* Fest "hell" gewaehlt -- etwa auf Android 7, das keine systemweite
+   Dunkel-Einstellung kennt. Dieselben Werte wie der Block darueber;
+   tests/test_frontend.py prueft, dass beide gleich bleiben. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f4f4f2;
+  --bg-bar: rgba(244, 244, 242, 0.88);
+  --surface: #ffffff;
+  --surface-2: #f0efec;
+  --surface-3: #ffffff;
+  --border: rgba(11, 11, 11, 0.10);
+  --border-strong: rgba(11, 11, 11, 0.24);
+
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #6b6a65;
+
+  --primary: #0b0b0b;
+  --primary-hover: #2a2a28;
+  --on-primary: #ffffff;
+  --focus: #0b0b0b;
+
+  --good-tint: rgba(12, 163, 12, 0.14);
+  --warn-ink: #a86500;
+  --warn-tint: rgba(250, 178, 25, 0.18);
+  --warn-line: rgba(168, 101, 0, 0.35);
+  --warn-solid: #fff4dc;
+  --bad-ink: #b42323;
+  --bad-tint: rgba(208, 59, 59, 0.12);
+  --bad-line: rgba(180, 35, 35, 0.40);
+  --bad-solid: #fdecec;
+
+  --pm25: #0b84a5;
+  --pm10: #7c4ddb;
+
+  --pmc-bg: #ffffff;
+  --pmc-text: #0b0b0b;
+  --pmc-muted: #6b6a65;
+  --pmc-grid: #e1e0d9;
+  --pmc-pm25: #0b84a5;
+  --pmc-pm10: #7c4ddb;
+  --pmc-rec: #8a8882;
+  --pmc-warn: #c98500;
+  --pmc-bad: #d03b3b;
+
+  --toast-bg: #1a1a19;
+  --toast-text: #f0efec;
+
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
 }
 
 /* -- Grundlagen -------------------------------------------------------- */
@@ -240,6 +295,60 @@ sub {
   display: flex;
   align-items: center;
 }
+
+/* Schalter Darstellung: so dezent wie die Pille daneben. Sichtbar 32 px,
+   Tippflaeche ueber den Rand hinaus 44 px. */
+.theme-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-left: 8px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.theme-btn::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  bottom: -6px;
+  left: -6px;
+}
+
+.theme-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.theme-btn svg {
+  display: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.theme-btn .fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.theme-btn[data-mode="auto"] .theme-auto,
+.theme-btn[data-mode="light"] .theme-light,
+.theme-btn[data-mode="dark"] .theme-dark { display: block; }
 
 .pill {
   display: inline-flex;
@@ -517,6 +626,7 @@ sub {
    :focus-visible nicht und ignorieren die zweite Regel -- dort bleibt
    der Ring bei jedem Fokus, das ist der sichere Fall. */
 .btn:focus,
+.theme-btn:focus,
 .icon-btn:focus,
 .seg button:focus,
 .ext-link:focus,
@@ -526,6 +636,7 @@ sub {
 }
 
 .btn:focus:not(:focus-visible),
+.theme-btn:focus:not(:focus-visible),
 .icon-btn:focus:not(:focus-visible),
 .seg button:focus:not(:focus-visible),
 .ext-link:focus:not(:focus-visible),

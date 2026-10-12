@@ -291,6 +291,32 @@ class TemplateTest(SearchMixin, unittest.TestCase):
         self.assertEqual(kml.level(50, 'pm_25'), 'high')
         self.assertEqual(kml.level(50, 'pm_10'), 'high')
 
+    def test_theme_key_matches_app_js(self):
+        """Das Skript im <head> setzt das Theme vor dem ersten Zeichnen --
+        mit demselben Schluessel, unter dem app.js die Wahl speichert."""
+        script = read_text(SCRIPT)
+        key = re.search(r"STORE_THEME = '([^']+)'", script).group(1)
+        head = self.html.split('</head>')[0]
+        self.assertIn("getItem('%s')" % key, head)
+        self.assertIn('id="themeBtn"', self.html)
+        self.assertIn('id="themeColor"', head)
+
+    def test_light_palettes_are_identical(self):
+        """Hell gibt es zweimal: nach Systemeinstellung und fest gewaehlt.
+        Beide Bloecke muessen dieselben Farben haben."""
+        css = read_text(STYLE)
+        media = re.search(r'@media \(prefers-color-scheme: light\) \{\s*'
+                          r':root:not\(\[data-theme="dark"\]\) \{(.*?)\}', css, re.S)
+        fixed = re.search(r':root\[data-theme="light"\] \{(.*?)\}', css, re.S)
+        self.assertIsNotNone(media)
+        self.assertIsNotNone(fixed)
+
+        def decls(block):
+            return sorted(line.strip() for line in block.splitlines()
+                          if ':' in line and not line.strip().startswith('/*'))
+        self.assertEqual(decls(media.group(1)), decls(fixed.group(1)))
+        self.assertIn('--bg: #f4f4f2;', decls(fixed.group(1)))
+
     def test_favicon_is_the_brand_mark(self):
         self.assertIn('href="/static/favicon.svg"', self.html)
 

@@ -53,6 +53,14 @@
   var STORE_RANGE = 'feinstaub.range';
   var STORE_MODE = 'feinstaub.mode';
   var STORE_PLACE = 'feinstaub.place';
+  // Gleicher Schluessel wie das kleine Skript im <head> von index.html.
+  var STORE_THEME = 'feinstaub.theme';
+
+  // Darstellung: Reihenfolge beim Tippen auf den Schalter.
+  var THEMES = ['auto', 'light', 'dark'];
+  var THEME_TEXT = {auto: 'automatisch', light: 'hell', dark: 'dunkel'};
+  // Farbe der Android-Statusleiste, wie --bg in app.css.
+  var THEME_BAR = {light: '#f4f4f2', dark: '#0d0d0d'};
 
   // -- Zustand ---------------------------------------------------------
   var last = null;             // letzte Antwort von /status/
@@ -1072,8 +1080,50 @@
             });
   }
 
+  // -- Darstellung -----------------------------------------------------
+  // "auto" folgt der Systemeinstellung (prefers-color-scheme). Android 7
+  // kennt keine systemweite Dunkel-Einstellung, deshalb laesst sich hell
+  // oder dunkel auch fest waehlen -- gemerkt pro Geraet im Browser.
+  function systemTheme() {
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        return 'light';
+      }
+    } catch (e) {
+      // altes WebView ohne matchMedia: der dunkle Standard
+    }
+    return 'dark';
+  }
+
+  function applyTheme(mode) {
+    var root = document.documentElement;
+    if (mode === 'light' || mode === 'dark') {
+      root.setAttribute('data-theme', mode);
+    } else {
+      mode = 'auto';
+      root.removeAttribute('data-theme');
+    }
+    var button = byId('themeBtn');
+    var label = 'Darstellung: ' + THEME_TEXT[mode];
+    setAttr(button, 'data-mode', mode);
+    setAttr(button, 'aria-label', label);
+    setAttr(button, 'title', label);
+    setAttr(byId('themeColor'), 'content', THEME_BAR[mode === 'auto' ? systemTheme() : mode]);
+    return mode;
+  }
+
+  function onThemeClick() {
+    var current = byId('themeBtn').getAttribute('data-mode');
+    var next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length];
+    next = applyTheme(next);
+    storageSet(STORE_THEME, next);
+    toast('Darstellung: ' + THEME_TEXT[next]
+          + (next === 'auto' ? ' (wie das System)' : ''), '');
+  }
+
   // -- Start -----------------------------------------------------------
   function restore() {
+    applyTheme(storageGet(STORE_THEME));
     var range = parseInt(storageGet(STORE_RANGE), 10);
     setRange(RANGES.indexOf(range) >= 0 ? range : DEFAULT_RANGE);
 
@@ -1102,6 +1152,7 @@
     });
     byId('reloadDevices').addEventListener('click', loadDevices);
     document.addEventListener('click', onLinkClick);
+    byId('themeBtn').addEventListener('click', onThemeClick);
 
     byId('startBtn').addEventListener('click', onStart);
     byId('stopBtn').addEventListener('click', onStop);
