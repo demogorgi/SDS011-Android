@@ -175,6 +175,12 @@ class DesktopGpsTest(unittest.TestCase):
         self.assertFalse(config.use_fake_hardware())
 
     def test_no_gps_instead_of_androidhelper(self):
-        source = gps.create_gps(None)
-        self.assertIsInstance(source, gps.NoGps)
+        """Am PC kein GPS -- ausser der simulierte Sensor ist gewaehlt."""
+        from state import AppState
+        state = AppState()
+        source = gps.create_gps(state)
+        self.assertFalse(source.available)
         self.assertEqual(source.read_position(), (0, 0))
+        state.set_device(config.SIM_DEVICE_ID, config.SIM_DEVICE_NAME)
+        self.assertTrue(source.available)
+        self.assertNotEqual(source.read_position(), (0, 0))

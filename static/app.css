@@ -270,6 +270,13 @@ sub {
   background: var(--good);
   box-shadow: 0 0 0 3px var(--good-tint);
 }
+/* Simulierter Sensor: hohler Punkt statt des vollen gruenen */
+.pill.is-sim .dot {
+  background: transparent;
+  border: 2px solid var(--good);
+  box-shadow: none;
+}
+
 .pill[data-state="wait"] .dot {
   background: var(--warn);
   -webkit-animation: blink 1.2s ease-in-out infinite;
@@ -1026,6 +1033,14 @@ sub {
   font-weight: 650;
   line-height: 16px;
   vertical-align: 2px;
+}
+
+/* Simuliert: gestrichelt und neutral -- kein Warnton, nur ein Hinweis */
+.badge-sim {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-2);
 }
 
 .note {

@@ -151,10 +151,18 @@ class BrowserTest(unittest.TestCase):
         conn = self._phase('connection')['connection']
         self.assertIn(u'getrennt', conn['initial']['text'])
         self.assertEqual(conn['initial']['state'], 'off')
-        self.assertIn(u'verbunden', conn['after_connect']['text'])
+        # Dieser Lauf nutzt SDS011_FAKE: die Pille sagt dann "simuliert".
+        self.assertIn(u'simuliert', conn['after_connect']['text'])
         self.assertEqual(conn['after_connect']['state'], 'on')
         self.assertIn(u'getrennt', conn['after_disconnect']['text'])
         self.assertEqual(conn['after_disconnect']['state'], 'off')
+
+    def test_simulation_is_visible(self):
+        """Dieser Lauf nutzt SDS011_FAKE: die Werte sind erfunden, und
+        das soll man sehen -- in der Pille und am Sensor."""
+        conn = self._phase('connection')['connection']
+        self.assertIn(u'simuliert', conn['pill_connected'])
+        self.assertTrue(conn['sim_badge_visible'])
 
     def test_no_values_without_sensor(self):
         """Ohne Sensor ein Strich statt 0,0 -- 0 saehe aus wie saubere

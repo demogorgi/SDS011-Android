@@ -180,6 +180,10 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
             except Exception as exc:
                 write_log(0, u'Geraeteliste nicht lesbar: {0}'.format(to_text(exc)))
                 state.report_error(u'Geräteliste nicht lesbar: {0}'.format(to_text(exc)))
+                # Den simulierten Sensor trotzdem anbieten.
+                simulated = getattr(transport, 'simulated_devices', None)
+                if simulated is not None:
+                    found = simulated()
         selected, _ = state.device()
         if selected is None and found:
             # Das Modul aus config.py vorauswaehlen, falls gekoppelt --
@@ -192,6 +196,9 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
     @app.route('/connect/')
     def connect():
         device_id = _query('device') or None
+        refused = _refuse_mixing(device_id)
+        if refused:
+            return refused
         name = u''
         if device_id and transport is not None:
             try:
@@ -214,6 +221,31 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         state.connection_wanted = False
         write_log(1, 'Trennung angefordert')
         return {'value': u'Verbindung getrennt.'}
+
+    def _refuse_mixing(device_id):
+        """None, solange kein Modus laeuft oder echt/simuliert gleich
+        bleibt, sonst die Ablehnung: eine Datei soll nicht halb echte und
+        halb erfundene Werte enthalten."""
+        if not (state.recording or state.local or state.stationary):
+            return None
+        current, _ = state.device()
+        if device_id is None or (config.is_simulation(device_id)
+                                 == config.is_simulation(current)):
+            return None
+        message = (u'Wechsel zwischen echtem und simuliertem Sensor nicht möglich: '
+                   u'erst die laufende Messung beenden.')
+        write_log(1, message)
+        return {'value': message, 'refused': True}
+
+    def _requires_real_sensor(what):
+        """None bei echtem Sensor, sonst die Ablehnung: simulierte Werte
+        duerfen nie oeffentlich hochgeladen werden."""
+        if not config.is_simulation(state.device()[0]):
+            return None
+        message = (u'%s nicht möglich: der Sensor ist simuliert, '
+                   u'erfundene Werte werden nicht hochgeladen.' % what)
+        write_log(1, message)
+        return {'value': message, 'refused': True}
 
     def _requires_sensor(what):
         """None, wenn ein Sensor verbunden ist, sonst die Ablehnung.
@@ -286,6 +318,7 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         # zu sensor.community (luftdaten) hoch. Nullen ohne Sensor landeten in einem
         # oeffentlichen Datensatz.
         refused = (_requires_sensor(u'Stationärer Modus')
+                   or _requires_real_sensor(u'Stationärer Modus')
                    or _requires_no_other_mode(u'Stationärer Modus'))
         if refused:
             return refused
@@ -443,6 +476,9 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
             'connection_wanted': snap['connection_wanted'],
             'device': snap['device'] or '',
             'device_name': snap['device_name'],
+            # Erfundene Werte: die Oberflaeche kennzeichnet sie und sperrt
+            # den stationaeren Modus.
+            'simulated': config.is_simulation(snap['device']),
             'interval': snap['record_interval'],
             'intervals': list(config.RECORD_INT_CHOICES),
             'measurement_age': _int_or_none(age),

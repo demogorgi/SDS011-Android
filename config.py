@@ -194,6 +194,22 @@ def use_fake_hardware():
     return value.strip().lower() not in ('', '0', 'false', 'no')
 
 
+# Geraete-ID des simulierten Sensors, der in der Geraeteliste immer mit
+# angeboten wird (transport.SelectableTransport). Keine MAC-Adresse, kann
+# also mit keinem echten Modul zusammenfallen.
+SIM_DEVICE_ID = 'simulation'
+SIM_DEVICE_NAME = u'Simulierter Sensor'
+
+
+def is_simulation(device_id):
+    """True, wenn die Messwerte erfunden sind: der simulierte Sensor ist
+    gewaehlt, oder die ganze App laeuft mit SDS011_FAKE.
+
+    Dann wird nichts hochgeladen, und die Dateinamen tragen 'sim_'.
+    """
+    return use_fake_hardware() or device_id == SIM_DEVICE_ID
+
+
 # Erst hier, weil choose_outdir() die Funktionen oben braucht. Wird
 # einmal beim Import festgelegt; unter Android legt die Pruefung
 # ANDROID_OUTDIR dabei schon an.

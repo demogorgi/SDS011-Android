@@ -81,6 +81,24 @@ ständig „Keine Daten vom Sensor“. *Trennen*
 beendet das Neuverbinden, auch mitten in einer Wartezeit; ein gerade
 laufender Verbindungsversuch wird noch zu Ende gebracht.
 
+**Simulierter Sensor:** Ganz unten in der Geräteliste steht immer
+*Simulierter Sensor*, auf dem Handy wie am PC. Er liefert verrauschte,
+plausible Werte mit gelegentlichen Spitzen: zum Ausprobieren und Vorführen
+ohne SDS011, ohne Neustart. Erfundene Werte sind überall kenntlich und
+landen nie in fremden Daten:
+
+* Oben rechts steht *simuliert* (hohler Punkt), am Sensor das Abzeichen
+  *Simulation*.
+* Dateien heißen `feinstaub_sim_…`, damit man sie nicht mit echten
+  Messungen verwechselt.
+* Der stationäre Modus ist gesperrt: simulierte Werte werden nie zu
+  sensor.community hochgeladen. Auch der Recorder lädt dann nichts hoch.
+* Während einer Messung lässt sich nicht zwischen echtem und simuliertem
+  Sensor wechseln; eine Datei enthält nur das eine oder das andere.
+* GPS: auf dem Handy das echte, eine Messfahrt zeigt also die echte
+  Strecke. Am PC, wo es kein GPS gibt, fährt mit dem simulierten Sensor
+  ein simuliertes GPS eine kleine Runde, damit eine KML-Spur entsteht.
+
 **Messwerte:** PM2.5 und PM10 in µg/m³ mit Einstufung *gut*, *erhöht* oder
 *hoch* (dieselben Stufen wie die Farben der KML: PM2.5 erhöht ab 25, PM10
 ab 40, beide hoch ab 50), dazu das Alter des Werts. Ist er älter als
@@ -221,10 +239,11 @@ braucht das Python 3.9 oder neuer. Fehlt die Unterstützung, meldet die App
 „Dieses Python kennt keine Bluetooth-Sockets.“ Kommt keine Verbindung zustande,
 `RFCOMM_CHANNEL` in `config.py` prüfen.
 
-**Simulation:** `SDS011_FAKE=1` ersetzt Sensor und GPS durch Simulationen
-(Windows-cmd: `set SDS011_FAKE=1`). Der simulierte Sensor liefert
-verrauschte, plausible Werte mit gelegentlichen Spitzen, das simulierte GPS
-fährt eine kleine Runde.
+**Simulation:** Am einfachsten *Simulierter Sensor* in der Geräteliste
+wählen (siehe *Bedienung*). Für Entwicklung und Tests ersetzt
+`SDS011_FAKE=1` zusätzlich die ganze Hardware, Sensor und GPS, ab dem Start
+(Windows-cmd: `set SDS011_FAKE=1`, PowerShell: `$env:SDS011_FAKE="1"`).
+Dann gilt alles als simuliert, mit denselben Folgen wie oben.
 
 ```
 SDS011_FAKE=1 python main.py
@@ -238,7 +257,7 @@ CSV mit leeren Koordinaten und keine KML-Spur.
 
 | Variable | Wirkung |
 |---|---|
-| `SDS011_FAKE=1` | simulierter Sensor und simuliertes GPS |
+| `SDS011_FAKE=1` | nur simulierter Sensor und simuliertes GPS, ab dem Start |
 | `SDS011_HOST` | Adresse des Webservers, Standard `127.0.0.1` |
 | `SDS011_PORT` | Port des Webservers, Standard `8080` |
 | `SDS011_OUTDIR` | Ausgabeverzeichnis für Messdateien, Log und `einstellungen.json`, statt `Download/Feinstaub` bzw. `output/` (etwa für Testläufe) |
@@ -366,10 +385,10 @@ aus. Die Hardware steckt hinter `transport.Transport` und
 | `state.py` | gemeinsamer, thread-sicherer Zustand | – |
 | `connection.py` | wachsende Wartezeiten (Backoff) | – |
 | `protocol.py` | SDS011-Datenpakete zerlegen und bauen | – |
-| `transport.py` | Transport-Schnittstelle, Bluetooth unter Android, Simulation | config, protocol, logging_util; bluetooth_desktop erst bei Bedarf |
+| `transport.py` | Transport-Schnittstelle, Bluetooth unter Android, Simulation, Auswahl echt/simuliert | config, protocol, logging_util; bluetooth_desktop erst bei Bedarf |
 | `bluetooth_desktop.py` | Bluetooth am PC über RFCOMM, Geräteliste | config, logging_util, transport |
 | `sensor.py` | Sensor-Thread: verbinden, lesen, bei Abbruch oder Stille neu verbinden | config, state, connection, logging_util, protocol, transport |
-| `gps.py` | GPS-Quellen und GPS-Thread | config, connection, logging_util, state |
+| `gps.py` | GPS-Quellen (am PC simuliert mit simuliertem Sensor) und GPS-Thread | config, connection, logging_util, state |
 | `recorder.py` | Aufzeichnungs-Thread: Mittelwert je Messintervall in Verlauf und CSV/KML, Upload | config, kml, logging_util |
 | `kml.py` | KML- und CSV-Zeilen schreiben, offene KML beim Start abschließen, Ampelfarben und -stufen | logging_util |
 | `settings.py` | Einstellungen aus der Oberfläche lesen und speichern (`einstellungen.json`) | config, logging_util |

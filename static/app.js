@@ -393,6 +393,8 @@
     var state = connState(data);
     var name = data.device_name || data.device || 'Sensor';
     var retrying = data.connection === 'wartet auf nächsten Versuch';
+    // Simulierter Sensor gewaehlt: ueberall kenntlich machen.
+    var simulated = !!data.simulated && state !== 'off';
 
     // Statuspille oben
     var pill = byId('connStatus');
@@ -400,7 +402,8 @@
     setAttr(pill, 'data-state', pillState);
     setText(byId('connText'), state === 'off' ? 'getrennt'
             : state === 'wait' ? (retrying ? 'wartet' : 'verbinde …')
-            : 'verbunden');
+            : (simulated ? 'simuliert' : 'verbunden'));
+    setClass(pill, 'is-sim', simulated);
     setAttr(pill, 'title', 'Sensor: ' + data.connection);
 
     // Karte: getrennt = Auswahl, sonst eine Zeile
@@ -417,8 +420,10 @@
       sub = retrying ? 'Neuer Versuch gleich …' : 'Verbinde …';
       error = data.connection_error || (retrying ? 'Sensor eingeschaltet und in Reichweite?' : '');
     } else {
-      sub = state === 'closing' ? 'wird getrennt …' : 'verbunden';
+      sub = state === 'closing' ? 'wird getrennt …'
+          : (simulated ? 'verbunden – Werte sind erfunden' : 'verbunden');
     }
+    show(byId('simBadge'), simulated);
     setText(byId('sensorName'), name);
     setText(byId('sensorSub'), sub);
     setText(byId('sensorError'), error);
@@ -672,10 +677,15 @@
     // Nullen, die wie echte Messwerte aussehen. Die Modi schliessen sich
     // aus: laeuft einer, ist Start gesperrt. Der Server prueft beides
     // zusaetzlich. Stoppen geht immer, auch ohne Sensor.
-    setButton(byId('startBtn'), connected && !active);
+    // Simulierte Werte nie oeffentlich hochladen: stationaer gesperrt.
+    var statBlocked = !!data.simulated && selectedMode() === 'stat';
+    setButton(byId('startBtn'), connected && !active && !statBlocked);
     setButton(byId('stopBtn'), !!active);
-    setText(byId('startHint'), connected ? '' : 'Zuerst oben den Sensor verbinden.');
-    show(byId('startHint'), !connected && !active);
+    setText(byId('startHint'), !connected ? 'Zuerst oben den Sensor verbinden.'
+            : statBlocked ? 'Mit dem simulierten Sensor wird nichts hochgeladen. '
+                            + 'Für den stationären Modus einen echten Sensor verbinden.'
+            : '');
+    show(byId('startHint'), (!connected || statBlocked) && !active);
 
     // Laufenden Modus vorwaehlen -- nach dem Stoppen steht er dann noch da.
     if (active) {
@@ -1102,6 +1112,11 @@
         modeSettled = true;
         storageSet(STORE_MODE, selectedMode());
         renderModeDetails();
+        // Startknopf und Hinweis haengen am gewaehlten Modus (stationaer
+        // ist mit simuliertem Sensor gesperrt).
+        if (last) {
+          applyModes(last);
+        }
       });
     }
 

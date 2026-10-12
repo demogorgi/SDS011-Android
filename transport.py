@@ -433,22 +433,76 @@ class FakeTransport(Transport):
         write_log(0, 'FakeTransport geschlossen')
 
 
+class SelectableTransport(Transport):
+    """Echter Transport plus ein simulierter Sensor zur Auswahl.
+
+    Die Geraeteliste enthaelt zusaetzlich zu den gekoppelten Modulen den
+    Eintrag config.SIM_DEVICE_ID. Wer ihn verbindet, bekommt Werte aus
+    einem FakeTransport, alle anderen IDs gehen an den echten Transport.
+    So laesst sich die App ohne Sensor vorfuehren, ohne sie mit
+    SDS011_FAKE neu zu starten -- unter QPython geht das gar nicht.
+    """
+
+    def __init__(self, real, fake_factory=None):
+        self._real = real
+        self._fake_factory = fake_factory or (lambda: FakeTransport(seed=None))
+        self._fake = None
+        self._active = real
+
+    @staticmethod
+    def simulated_devices():
+        return [{'id': config.SIM_DEVICE_ID, 'name': config.SIM_DEVICE_NAME}]
+
+    def available_devices(self):
+        """Gekoppelte Geraete, dahinter der simulierte Sensor. Ein Fehler
+        beim Auflisten geht an den Aufrufer (die Oberflaeche zeigt ihn);
+        der kann dann simulated_devices() anbieten."""
+        return list(self._real.available_devices()) + self.simulated_devices()
+
+    def connect(self, device_id=None):
+        if device_id == config.SIM_DEVICE_ID:
+            if self._fake is None:
+                self._fake = self._fake_factory()
+            target = self._fake
+        else:
+            target = self._real
+        if target is not self._active and self._active.is_connected():
+            self._active.disconnect()
+        self._active = target
+        target.connect(device_id)
+
+    def disconnect(self):
+        self._active.disconnect()
+
+    def is_connected(self):
+        return self._active.is_connected()
+
+    def read(self, max_bytes):
+        return self._active.read(max_bytes)
+
+    def close(self):
+        if self._fake is not None:
+            self._fake.close()
+        self._real.close()
+
+
 def create_transport():
     """Liefert den passenden Transport fuer die Umgebung.
 
-    SDS011_FAKE=1: Simulation. Unter Android: androidhelper. Sonst (PC):
-    RFCOMM-Socket aus bluetooth_desktop. Echte Verbindungen laufen
-    ueberall ueber die MAC-Adresse des Moduls.
+    SDS011_FAKE=1: nur Simulation. Unter Android: androidhelper. Sonst
+    (PC): RFCOMM-Socket aus bluetooth_desktop. Echte Verbindungen laufen
+    ueberall ueber die MAC-Adresse des Moduls; der simulierte Sensor
+    steht in beiden Faellen zusaetzlich zur Wahl (SelectableTransport).
     """
     if config.use_fake_hardware():
         write_log(1, 'Benutze simulierten Sensor (FakeTransport)')
         return FakeTransport()
     if config.on_android():
         write_log(1, 'Benutze Bluetooth ueber androidhelper')
-        return AndroidBluetoothTransport()
+        return SelectableTransport(AndroidBluetoothTransport())
     # Erst hier importieren: bluetooth_desktop importiert selbst aus
     # diesem Modul (ein Import oben waere zirkulaer) und wird auf Android
     # so gar nicht erst geladen.
     from bluetooth_desktop import BluetoothSocketTransport
     write_log(1, 'Benutze Bluetooth ueber RFCOMM-Socket')
-    return BluetoothSocketTransport()
+    return SelectableTransport(BluetoothSocketTransport())

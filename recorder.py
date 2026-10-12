@@ -282,21 +282,24 @@ class Recorder(threading.Thread):
         """
         stamp = _timestamp()
         join = os.path.join
+        # Simulierte Messungen erkennt man am Namen -- sonst verwechselt
+        # man sie spaeter mit echten.
+        pre = 'feinstaub_sim_' if config.is_simulation(self._state.device()[0]) else 'feinstaub_'
         self._files_mode = mode
         self._fname_25 = None
         self._fname_10 = None
         place = u''
         if mode == MODE_TRIP:
-            self._fname_25 = join(self._outdir, 'feinstaub_25_line_%s.kml' % stamp)
-            self._fname_10 = join(self._outdir, 'feinstaub_10_line_%s.kml' % stamp)
-            name = 'feinstaub_%s.csv' % stamp
+            self._fname_25 = join(self._outdir, '%s25_line_%s.kml' % (pre, stamp))
+            self._fname_10 = join(self._outdir, '%s10_line_%s.kml' % (pre, stamp))
+            name = '%s%s.csv' % (pre, stamp)
         elif mode == MODE_LOCAL:
             place = self._state.place()
             slug = slugify(place)
-            name = ('feinstaub_%s_%s.csv' % (slug, stamp) if slug
-                    else 'feinstaub_lokal_%s.csv' % stamp)
+            name = ('%s%s_%s.csv' % (pre, slug, stamp) if slug
+                    else '%slokal_%s.csv' % (pre, stamp))
         else:
-            name = 'feinstaub_stationaer_%s.csv' % stamp
+            name = '%sstationaer_%s.csv' % (pre, stamp)
         self._fname_csv = join(self._outdir, name)
         self._files_open = True
         self._lat_old = None
@@ -586,6 +589,17 @@ class Recorder(threading.Thread):
         wurde, sonst True -- auch wenn der Upload scheiterte.
         """
         totals = self._state.sample_totals()
+        if config.is_simulation(self._state.device()[0]):
+            # Die Oberflaeche und /staton/ sperren das schon; hier die
+            # letzte Sicherung, falls doch (etwa eine veraltete Seite):
+            # erfundene Werte nie in den oeffentlichen Datensatz.
+            self._push_totals = totals
+            message = u'Simulierter Sensor - nichts hochgeladen.'
+            if self._state.error() != message:
+                write_log(1, message)
+            self._state.report_error(message)
+            self._uploaded(False, message)
+            return True
         if self._fresh_measurement(self._consequence(u'nichts hochgeladen')) is None:
             # Das Upload-Fenster beginnt hier neu. Sonst mittelte der
             # naechste Versuch (nach PUSH_RETRY s, wenn der Sensor wieder

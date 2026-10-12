@@ -138,17 +138,54 @@ class NoGps(GpsSource):
         return (0, 0)
 
 
+class SimulatedOnDemandGps(GpsSource):
+    """Am PC: kein GPS -- ausser der simulierte Sensor ist gewaehlt, dann
+    faehrt das simulierte GPS seine Runde. So entsteht auch am PC eine
+    KML-Spur zum Ausprobieren. Auf dem Handy bleibt das echte GPS, damit
+    eine Messfahrt mit simuliertem Sensor die echte Strecke zeigt.
+
+    use_fake: Funktion ohne Argumente, True = simuliertes GPS benutzen.
+    """
+
+    def __init__(self, use_fake, real=None, fake=None):
+        self._use_fake = use_fake
+        self._real = real or NoGps()
+        self._fake = fake or FakeGps()
+
+    def _source(self):
+        return self._fake if self._use_fake() else self._real
+
+    @property
+    def available(self):
+        return self._source().available
+
+    def read_position(self):
+        return self._source().read_position()
+
+    def read_fix(self):
+        return self._source().read_fix()
+
+    def restart(self):
+        self._source().restart()
+
+    def close(self):
+        self._real.close()
+        self._fake.close()
+
+
 def create_gps(state):
     """Passende Quelle: FakeGps bei SDS011_FAKE, AndroidGps auf dem
-    Handy, sonst NoGps. state wird nicht benutzt."""
+    Handy, sonst (PC) kein GPS -- oder das simulierte, solange der
+    simulierte Sensor gewaehlt ist."""
     if config.use_fake_hardware():
         write_log(1, 'Benutze simuliertes GPS (FakeGps)')
         return FakeGps()
     if config.on_android():
         return AndroidGps()
     # Echter Sensor am PC: androidhelper gibt es hier nicht.
-    write_log(1, 'Kein GPS auf diesem Rechner')
-    return NoGps()
+    write_log(1, 'Kein GPS auf diesem Rechner (simuliert nur mit simuliertem Sensor)')
+    return SimulatedOnDemandGps(
+        lambda: state.device()[0] == config.SIM_DEVICE_ID)
 
 
 class GpsReader(threading.Thread):
@@ -183,6 +220,9 @@ class GpsReader(threading.Thread):
         """Eine Runde: Position lesen, bei langer Stille neu anmelden."""
         lat, lon, new = self._source.read_fix()
         self._state.set_position(lat, lon, utcnow())
+        # Bei jeder Runde: am PC wechselt die Quelle mit dem gewaehlten
+        # Sensor (SimulatedOnDemandGps).
+        self._state.set_gps_available(self._source.available)
         now = self._clock()
         if new:
             self._state.mark_gps_fix(now)

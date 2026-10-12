@@ -38,6 +38,9 @@ BASE = 'http://127.0.0.1:' + PORT
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 CONN_TEXT = "document.querySelector('#connStatus').textContent"
+# Verbunden heisst die Pille "verbunden" -- oder "simuliert", denn dieser
+# Lauf nutzt SDS011_FAKE, und das gilt als simulierter Sensor.
+CONNECTED = ("document.querySelector('#connStatus').getAttribute('data-state') === 'on'")
 
 # Beschriftung des Diagramms; im leeren Diagramm steht dort die Meldung.
 CHART_LABEL = ("(function () { var s = document.querySelector('#chart svg');"
@@ -211,8 +214,10 @@ async def collect():
             await page.wait_for_selector('#toast.is-shown', timeout=3000)
             conn['toast'] = await text(page, '#toast')
             # Auf die Zustandsaenderung warten statt eine Dauer zu raten.
-            await page.wait_for_function(CONN_TEXT + ".indexOf('verbunden') >= 0",
-                                         timeout=15000)
+            await page.wait_for_function(CONNECTED, timeout=15000)
+            conn['pill_connected'] = await page.evaluate(CONN_TEXT)
+            conn['sim_badge_visible'] = await page.evaluate(
+                "!document.getElementById('simBadge').hidden")
             # Laengstens eine Abfrage spaeter; ohne die Verbindung im
             # Schluessel kaeme das neue Bild erst nach einer Minute.
             await chart_label_containing(page, 'Erster Mittelwert')
@@ -259,8 +264,7 @@ async def collect():
 
             # Fuer den Rest der Pruefungen wieder verbinden.
             await page.click('#connectBtn')
-            await page.wait_for_function(CONN_TEXT + ".indexOf('verbunden') >= 0",
-                                         timeout=15000)
+            await page.wait_for_function(CONNECTED, timeout=15000)
 
         with Phase(result, 'interval'):
             original = server_status()['interval']
