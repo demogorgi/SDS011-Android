@@ -265,7 +265,7 @@ class SensorRequiredTest(unittest.TestCase):
 
     def test_stationary_is_allowed_near_configured_position(self):
         self.state.set_connection(u'verbunden')
-        self.state.set_position(51.4385, 6.7882)
+        self.state.set_position(51.43994724975504, 6.781089452019765)
         self.state.mark_gps_fix()
         status, payload = call(self.app, '/staton/')
         self.assertFalse(payload.get('refused'))

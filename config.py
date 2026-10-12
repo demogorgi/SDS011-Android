@@ -72,10 +72,10 @@ RFCOMM_CHANNEL = 1
 SDS011_BLUETOOTH_DEVICE_ID = '00:14:03:05:59:17'
 # Sensor-ID fuer den Upload zu sensor.community (Header X-Sensor) im
 # stationaeren Modus. Karte:
-# https://deutschland.maps.sensor.community/#16/51.4385/6.7882
+# https://deutschland.maps.sensor.community/#16/51.439947/6.781089
 XSENSOR = 'raspi-00000000a5c85ba8'
 LUFTDATEN_URL = 'https://api.luftdaten.info/v1/push-sensor-data/'
-SENSOR_MAP_URL = 'https://deutschland.maps.sensor.community/#16/51.4385/6.7882'
+SENSOR_MAP_URL = 'https://deutschland.maps.sensor.community/#16/51.43994724975504/6.781089452019765'
 # Externe Seiten, die die Oberflaeche verlinkt: die Karte (auf den
 # Standort des eigenen Sensors zentriert), dieselbe Karte an der
 # aktuellen GPS-Position und die Grenzwerte beim Umweltbundesamt. Unter
