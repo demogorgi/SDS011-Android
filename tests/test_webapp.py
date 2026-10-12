@@ -15,7 +15,7 @@ from xml.etree import ElementTree
 
 import config
 import webapp
-from state import AppState
+from state import AppState, monotonic
 
 
 def call_raw(app, path, method='GET', **extra):
@@ -171,12 +171,13 @@ class RouteTest(unittest.TestCase):
                     'recording', 'stationary', 'connection',
                     'connection_error', 'connection_wanted',
                     'device', 'device_name', 'gps_available', 'gps_age',
-                    'gps_max_age', 'local', 'place',
+                    'gps_max_age', 'local', 'place', 'trip_name',
                     # Fuer die Oberflaeche mit Server-Diagramm:
                     'interval', 'intervals', 'measurement_age',
                     'pm_25_level', 'pm_10_level', 'history_rev',
                     'next_point_in', 'session', 'upload', 'outdir',
-                    'stat_interval'):
+                    'stat_interval', 'stationary_position_ok',
+                    'stationary_distance_m', 'stationary_max_distance_m'):
             self.assertIn(key, payload)
         self.assertEqual(payload['lat'], '51.43850')
         self.assertEqual(payload['pm_10'].strip(), '45.6')
@@ -252,12 +253,58 @@ class SensorRequiredTest(unittest.TestCase):
         self.assertTrue(payload.get('refused'))
         self.assertFalse(self.state.stationary)
 
+    def test_stationary_is_refused_far_from_configured_position(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_position(52.5200, 13.4050)
+        self.state.mark_gps_fix()
+        status, payload = call(self.app, '/staton/')
+        self.assertTrue(payload.get('refused'))
+        self.assertFalse(self.state.stationary)
+        self.assertGreater(payload['distance_m'], config.STATIONARY_MAX_DISTANCE_M)
+        self.assertIn(u'GPS-Position', payload['value'])
+
+    def test_stationary_is_allowed_near_configured_position(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_position(51.4385, 6.7882)
+        self.state.mark_gps_fix()
+        status, payload = call(self.app, '/staton/')
+        self.assertFalse(payload.get('refused'))
+        self.assertTrue(self.state.stationary)
+
+    def test_stationary_is_allowed_without_gps(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_gps_available(False)
+        status, payload = call(self.app, '/staton/')
+        self.assertFalse(payload.get('refused'))
+        self.assertTrue(self.state.stationary)
+
     def test_start_works_once_connected(self):
         self.state.set_connection(u'verbunden')
         status, payload = call(self.app, '/start/')
         self.assertFalse(payload.get('refused'))
         self.assertTrue(self.state.recording)
         self.assertEqual(self.state.error(), u'')
+
+    def test_start_sets_trip_name(self):
+        self.state.set_connection(u'verbunden')
+        status, payload = call(self.app, '/start/?name=Von%20Essen%20nach%20Duisburg')
+        self.assertFalse(payload.get('refused'))
+        self.assertTrue(self.state.recording)
+        self.assertEqual(self.state.trip_name(), u'Von Essen nach Duisburg')
+
+    def test_status_reports_trip_name_while_recording(self):
+        self.state.set_connection(u'verbunden')
+        call(self.app, '/start/?name=A40')
+        status, payload = call(self.app, '/status/')
+        self.assertEqual(payload['place'], u'A40')
+        self.assertEqual(payload['trip_name'], u'A40')
+
+    def test_start_without_name_clears_previous_place(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_trip_name(u'Alter Name')
+        status, payload = call(self.app, '/start/')
+        self.assertFalse(payload.get('refused'))
+        self.assertEqual(self.state.trip_name(), u'')
 
     def test_stopp_works_even_without_sensor(self):
         """Stoppen muss immer gehen -- auch wenn die Verbindung
@@ -735,13 +782,32 @@ class OpenLinkTest(unittest.TestCase):
 
     def setUp(self):
         self.opened = []
-        self.app = webapp.create_app(AppState(), open_url=self.opened.append)
+        self.state = AppState()
+        self.app = webapp.create_app(self.state, open_url=self.opened.append)
 
     def test_opens_known_link(self):
         status, body = call(self.app, '/open/?link=uba')
         self.assertTrue(status.startswith('200'), status)
         self.assertTrue(body['opened'])
         self.assertEqual(self.opened, [config.LINKS['uba']])
+
+    def test_position_map_uses_current_gps_fix(self):
+        self.state.set_position(52.123456, 13.987654)
+        self.state.mark_gps_fix()
+        status, body = call(self.app, '/open/?link=karte_position')
+        self.assertTrue(status.startswith('200'), status)
+        self.assertTrue(body['opened'])
+        self.assertEqual(
+            self.opened[-1],
+            'https://deutschland.maps.sensor.community/#16/52.12346/13.98765')
+
+    def test_position_map_falls_back_without_fresh_gps(self):
+        self.state.set_position(52.123456, 13.987654)
+        self.state.mark_gps_fix(monotonic() - config.GPS_MAX_AGE - 1)
+        status, body = call(self.app, '/open/?link=karte_position')
+        self.assertTrue(status.startswith('200'), status)
+        self.assertTrue(body['opened'])
+        self.assertEqual(self.opened[-1], config.LINKS['karte_position'])
 
     def test_refuses_unknown_name_and_raw_urls(self):
         """Nur Namen aus config.LINKS -- sonst koennte jede Seite, die den
@@ -760,6 +826,16 @@ class OpenLinkTest(unittest.TestCase):
         self.assertFalse(body['opened'])
         self.assertNotIn('refused', body)
         self.assertEqual(body['url'], config.LINKS['karte'])
+
+    def test_without_opener_position_map_returns_dynamic_url(self):
+        state = AppState()
+        state.set_position(52.123456, 13.987654)
+        state.mark_gps_fix()
+        status, body = call(webapp.create_app(state), '/open/?link=karte_position')
+        self.assertFalse(body['opened'])
+        self.assertEqual(
+            body['url'],
+            'https://deutschland.maps.sensor.community/#16/52.12346/13.98765')
 
     def test_failure_is_reported(self):
         def broken(url):

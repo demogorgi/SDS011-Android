@@ -95,6 +95,8 @@ class AppState(object):
         self._device_name = u''
         # Freitext fuer die lokale Messung, landet im Dateinamen.
         self._place = u''
+        # Freitext fuer die Messfahrt, landet im Dateinamen.
+        self._trip_name = u''
 
         # Laufende Summen ueber alle Messwerte seit dem Start, fuer
         # Fenster-Mittelwerte (siehe sample_totals).
@@ -249,6 +251,14 @@ class AppState(object):
         with self._lock:
             return self._place
 
+    def set_trip_name(self, name):
+        with self._lock:
+            self._trip_name = name or u''
+
+    def trip_name(self):
+        with self._lock:
+            return self._trip_name
+
     # -- Messintervall -------------------------------------------------
     def set_record_interval(self, seconds):
         with self._lock:
@@ -332,6 +342,7 @@ class AppState(object):
                 'local': self.local,
                 'stationary': self.stationary,
                 'place': self._place,
+                'trip_name': self._trip_name,
                 'connection': self._connection,
                 'connection_error': self._connection_error,
                 'connection_wanted': self.connection_wanted,

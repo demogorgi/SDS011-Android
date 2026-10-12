@@ -30,7 +30,8 @@ REQUIRED_IDS = (
     'connectBtn', 'disconnectBtn', 'deviceSelect', 'connStatus',
     'errorBanner', 'pm25Value', 'pm10Value', 'pm25Level', 'pm10Level',
     'liveAge', 'gpsStatus', 'gpsCoords', 'chart', 'rangeSelect',
-    'intervalSelect', 'modeTrip', 'modeLocal', 'modeStat', 'placeInput',
+    'intervalSelect', 'modeTrip', 'modeLocal', 'modeStat',
+    'tripDetails', 'tripNameInput', 'placeInput',
     'startBtn', 'stopBtn', 'sessionPanel', 'sessionElapsed',
     'sessionPoints', 'sessionAvg25', 'sessionAvg10', 'sessionFile',
     'uploadInfo', 'toast',
@@ -232,7 +233,7 @@ class TemplateTest(SearchMixin, unittest.TestCase):
 
     def test_inputs_have_labels(self):
         labelled = {a.get('for') for t, a in self.tags if t == 'label' and a.get('for')}
-        for name in ('placeInput', 'deviceSelect'):
+        for name in ('tripNameInput', 'placeInput', 'deviceSelect'):
             self.assertIn(name, labelled, 'Eingabe ohne <label for>: %s' % name)
 
     def test_live_regions(self):
@@ -255,6 +256,7 @@ class TemplateTest(SearchMixin, unittest.TestCase):
         das WebView von QPython ignoriert target="_blank"."""
         html = render_template()
         self.assertIn(config.LINKS['karte'], html)
+        self.assertIn(config.LINKS['karte_position'], html)
         self.assertIn(config.LINKS['uba'], html)
         self.assertIn('{{outdir}}', self.html)
         for tag, attrs in self.tags:
@@ -268,6 +270,16 @@ class TemplateTest(SearchMixin, unittest.TestCase):
         for block in ('statWarn', 'uploadInfo'):
             match = re.search(r'id="%s".*?data-link="karte"' % block, self.html, re.S)
             self.assertIsNotNone(match, 'Kartenlink fehlt in #%s' % block)
+
+    def test_position_map_link_at_trip_and_local_modes(self):
+        for block in ('tripDetails', 'placeField', 'positionMapRun'):
+            match = re.search(r'id="%s".*?data-link="karte_position"' % block,
+                              self.html, re.S)
+            self.assertIsNotNone(match, 'Positionskartenlink fehlt in #%s' % block)
+        self.assertIn("show(byId('tripDetails'), mode === 'trip')", self.script)
+        self.assertIn("show(byId('placeField'), mode === 'local')", self.script)
+        self.assertIn("show(byId('positionMapRun'), active === 'trip' || active === 'local')",
+                      self.script)
 
     def test_open_external_flag(self):
         self.assertIn('data-open-external="0"', render_template(open_external=False))
@@ -382,7 +394,9 @@ class ScriptTest(SearchMixin, unittest.TestCase):
                       'connection_error', 'connection_wanted', 'device',
                       'device_name', 'interval', 'intervals', 'measurement_age',
                       'pm_25_level', 'history_rev', 'next_point_in', 'session',
-                      'upload', 'outdir', 'stat_interval'):
+                      'upload', 'outdir', 'stat_interval',
+                      'stationary_position_ok', 'stationary_distance_m',
+                      'stationary_max_distance_m'):
             pattern = r"(data|last|status)\.%s\b|'%s'" % (field, field)
             self.assert_search(self.code, pattern, '/status/-Feld unbenutzt: %s' % field)
 

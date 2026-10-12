@@ -234,6 +234,13 @@
             <span class="mode-radio" aria-hidden="true"></span>
           </span>
         </label>
+        <div class="field mode-detail" id="tripDetails" hidden>
+          <label class="label" for="tripNameInput">Name der Messfahrt</label>
+          <input type="text" id="tripNameInput" class="input" placeholder="z. B. Von Essen nach Duisburg"
+                 maxlength="40" autocomplete="off" enterkeyhint="go">
+          <p class="help">Erscheint im Dateinamen. Ohne Name heißen die Dateien nur nach Zeitstempel.</p>
+          <a class="ext-link" href="{{links['karte_position']}}" data-link="karte_position" target="_blank" rel="noopener">Karte an meiner Position ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+        </div>
         <label class="mode" id="modeLocal">
           <input type="radio" name="mode" value="local">
           <span class="mode-body">
@@ -247,6 +254,13 @@
             <span class="mode-radio" aria-hidden="true"></span>
           </span>
         </label>
+        <div class="field mode-detail" id="placeField" hidden>
+          <label class="label" for="placeInput">Ort</label>
+          <input type="text" id="placeInput" class="input" placeholder="z. B. Kletterhalle"
+                 maxlength="40" autocomplete="off" enterkeyhint="go">
+          <p class="help">Erscheint im Dateinamen. Ohne Ort heißt die Datei „lokal“.</p>
+          <a class="ext-link" href="{{links['karte_position']}}" data-link="karte_position" target="_blank" rel="noopener">Karte an meiner Position ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+        </div>
         <label class="mode" id="modeStat">
           <input type="radio" name="mode" value="stat">
           <span class="mode-body">
@@ -260,22 +274,15 @@
             <span class="mode-radio" aria-hidden="true"></span>
           </span>
         </label>
-      </div>
-
-      <div class="field" id="placeField" hidden>
-        <label class="label" for="placeInput">Ort</label>
-        <input type="text" id="placeInput" class="input" placeholder="z. B. Kletterhalle"
-               maxlength="40" autocomplete="off" enterkeyhint="go">
-        <p class="help">Erscheint im Dateinamen. Ohne Ort heißt die Datei „lokal“.</p>
-      </div>
-
-      <div class="note note-warn" id="statWarn" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9L1.8 18.5a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.5M12 17.5v.01"/></svg>
-        <div>
-        <p><strong>Öffentlicher Upload.</strong> Die Werte gehen <span class="js-stat-every">alle paar Minuten</span>
-          an sensor.community (luftdaten.info) und erscheinen dort unter der Sensor-ID
-          <b class="mono">{{xsensor}}</b>. Nur am vereinbarten Standort starten.</p>
-          <a class="ext-link" href="{{links['karte']}}" data-link="karte" target="_blank" rel="noopener">Sensor auf der Karte ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+        <div class="note note-warn mode-detail" id="statWarn" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9L1.8 18.5a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.5M12 17.5v.01"/></svg>
+          <div>
+          <p><strong>Öffentlicher Upload.</strong> Die Werte gehen <span class="js-stat-every">alle paar Minuten</span>
+            an sensor.community (luftdaten.info) und erscheinen dort unter der Sensor-ID
+            <b class="mono">{{xsensor}}</b>. Nur am vereinbarten Standort starten.</p>
+            <p class="help">Mit aktuellem GPS-Fix startet dieser Modus nur nahe am konfigurierten Sensorstandort.</p>
+            <a class="ext-link" href="{{links['karte']}}" data-link="karte" target="_blank" rel="noopener">Sensor auf der Karte ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+          </div>
         </div>
       </div>
     </div>
@@ -303,6 +310,9 @@
           <div class="stat-label"><span class="key key-10" aria-hidden="true"></span>Ø PM<sub>10</sub></div>
           <div class="stat-value tnum"><span id="sessionAvg10">–</span><span class="stat-unit">µg/m³</span></div>
         </div></div>
+      </div>
+      <div class="map-row" id="positionMapRun" hidden>
+        <a class="ext-link" href="{{links['karte_position']}}" data-link="karte_position" target="_blank" rel="noopener">Karte an meiner Position ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
       </div>
       <div class="upload" id="uploadInfo" data-state="none" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V6M6 11.5L12 5.5l6 6"/></svg>

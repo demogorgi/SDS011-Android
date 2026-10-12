@@ -43,6 +43,10 @@ GPS_RESTART_MAX = 600
 # beginnt danach neu statt mit einer geraden Linie von der alten
 # Position. Dieselbe Schwelle gilt fuer die Anzeige "GPS: aktuell".
 GPS_MAX_AGE = 15
+# Stationaerer Upload nur, wenn ein frischer GPS-Fix hoechstens so weit
+# vom konfigurierten Sensorstandort entfernt ist. Ohne GPS/Fix (z. B. am
+# Laptop) blockiert diese Pruefung nicht.
+STATIONARY_MAX_DISTANCE_M = 500
 # Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus;
 # hochgeladen wird der Mittelwert ueber diese Zeit. sensor.community
 # erwartet Werte etwa alle 2-5 min -- nicht unter 150 s setzen.
@@ -71,12 +75,17 @@ SDS011_BLUETOOTH_DEVICE_ID = '00:14:03:05:59:17'
 # https://deutschland.maps.sensor.community/#16/51.4385/6.7882
 XSENSOR = 'raspi-00000000a5c85ba8'
 LUFTDATEN_URL = 'https://api.luftdaten.info/v1/push-sensor-data/'
+SENSOR_MAP_URL = 'https://deutschland.maps.sensor.community/#16/51.4385/6.7882'
 # Externe Seiten, die die Oberflaeche verlinkt: die Karte (auf den
-# Standort des eigenen Sensors zentriert) und die Grenzwerte beim
-# Umweltbundesamt. Unter Android oeffnet sie die App im Browser des
-# Systems -- das WebView von QPython oeffnet keine neuen Fenster.
+# Standort des eigenen Sensors zentriert), dieselbe Karte an der
+# aktuellen GPS-Position und die Grenzwerte beim Umweltbundesamt. Unter
+# Android oeffnet sie die App im Browser des Systems -- das WebView von
+# QPython oeffnet keine neuen Fenster.
 LINKS = {
-    'karte': 'https://deutschland.maps.sensor.community/#16/51.4385/6.7882',
+    'karte': SENSOR_MAP_URL,
+    # Wird bei frischem GPS-Fix von Frontend und /open/ umgeschrieben.
+    # Ohne Fix bleibt der feste Sensorstandort aus SENSOR_MAP_URL.
+    'karte_position': SENSOR_MAP_URL,
     'uba': 'https://www.umweltbundesamt.de/themen/luft/luftschadstoffe/feinstaub',
 }
 

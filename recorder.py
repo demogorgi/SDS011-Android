@@ -290,9 +290,12 @@ class Recorder(threading.Thread):
         self._fname_10 = None
         place = u''
         if mode == MODE_TRIP:
-            self._fname_25 = join(self._outdir, '%s25_line_%s.kml' % (pre, stamp))
-            self._fname_10 = join(self._outdir, '%s10_line_%s.kml' % (pre, stamp))
-            name = '%s%s.csv' % (pre, stamp)
+            place = self._state.trip_name()
+            slug = slugify(place)
+            stem = '%s%s_' % (pre, slug) if slug else pre
+            self._fname_25 = join(self._outdir, '%s25_line_%s.kml' % (stem, stamp))
+            self._fname_10 = join(self._outdir, '%s10_line_%s.kml' % (stem, stamp))
+            name = '%s%s.csv' % (stem, stamp)
         elif mode == MODE_LOCAL:
             place = self._state.place()
             slug = slugify(place)

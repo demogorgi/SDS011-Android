@@ -14,6 +14,7 @@ jeder Aufruf liefert eine unabhaengige App.
 from __future__ import absolute_import
 
 import math
+import re
 import threading
 import time
 
@@ -116,6 +117,98 @@ def _upload_view(info, now):
 
 # Zeitraeume des Diagramms in Sekunden, 0 = alles.
 CHART_RANGES = (600, 3600, 21600, 0)
+MAP_FRAGMENT_RE = re.compile(r'^(.*#)([^/]+)/([^/]+)/([^/]+)$')
+
+
+def _map_coord(value):
+    return '%.5f' % float(value)
+
+
+def _map_url_at_position(fallback_url, lat, lon):
+    """Sensor.community-Karte aus der konfigurierten Karte ableiten.
+
+    So bleiben Domain und Zoomstufe aus config.py erhalten, nur die
+    Koordinaten werden ersetzt. Ist die Karte anders formatiert, bleibt
+    der feste Link unveraendert.
+    """
+    match = MAP_FRAGMENT_RE.match(fallback_url)
+    if not match:
+        return fallback_url
+    return '%s%s/%s/%s' % (match.group(1), match.group(2),
+                           _map_coord(lat), _map_coord(lon))
+
+
+def _sensor_position():
+    url = config.LINKS.get('karte', getattr(config, 'SENSOR_MAP_URL', ''))
+    match = MAP_FRAGMENT_RE.match(url)
+    if not match:
+        return None
+    try:
+        lat = float(match.group(3))
+        lon = float(match.group(4))
+    except (TypeError, ValueError):
+        return None
+    if lat < -90 or lat > 90 or lon < -180 or lon > 180:
+        return None
+    return lat, lon
+
+
+def _distance_m(a_lat, a_lon, b_lat, b_lon):
+    radius = 6371000.0
+    lat1 = math.radians(a_lat)
+    lat2 = math.radians(b_lat)
+    dlat = lat2 - lat1
+    dlon = math.radians(b_lon - a_lon)
+    h = (math.sin(dlat / 2) ** 2 +
+         math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2)
+    h = min(1.0, max(0.0, h))
+    return 2 * radius * math.atan2(math.sqrt(h), math.sqrt(1 - h))
+
+
+def _fresh_position(state):
+    lat, lon, _utc = state.position()
+    age = state.gps_age()
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return None
+    if (age is None or age > config.GPS_MAX_AGE or
+            lat < -90 or lat > 90 or lon < -180 or lon > 180 or
+            (lat == 0 and lon == 0)):
+        return None
+    return lat, lon
+
+
+def _link_url(state, name):
+    url = config.LINKS.get(name)
+    if url is None:
+        return None
+    if name == 'karte_position':
+        position = _fresh_position(state)
+        if position is not None:
+            return _map_url_at_position(config.LINKS.get('karte', url),
+                                        position[0], position[1])
+    return url
+
+
+def _stationary_position_check(state):
+    """(ok, entfernung_m, erlaubte_entfernung_m).
+
+    Ohne GPS, ohne frischen Fix oder ohne parsebaren Sensorstandort wird
+    nicht blockiert. Die Pruefung soll falsche oeffentliche Uploads
+    verhindern, aber Laptop-Betrieb und schlechten Empfang nicht lahmlegen.
+    """
+    if not state.snapshot().get('gps_available'):
+        return True, None, config.STATIONARY_MAX_DISTANCE_M
+    target = _sensor_position()
+    position = _fresh_position(state)
+    if target is None or position is None:
+        return True, None, config.STATIONARY_MAX_DISTANCE_M
+    distance = int(round(_distance_m(position[0], position[1],
+                                     target[0], target[1])))
+    return (distance <= config.STATIONARY_MAX_DISTANCE_M,
+            distance, config.STATIONARY_MAX_DISTANCE_M)
 
 
 def create_app(state, on_shutdown=None, transport=None, open_url=None):
@@ -143,7 +236,7 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         Nur Namen, keine Adressen: sonst koennte jede Seite, die den
         Server erreicht, beliebige Adressen auf dem Handy oeffnen."""
         name = _query('link')
-        url = config.LINKS.get(name)
+        url = _link_url(state, name)
         if url is None:
             return {'value': u'Unbekannter Link.', 'refused': True, 'opened': False}
         if open_url is None:
@@ -279,6 +372,18 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         write_log(1, message)
         return {'value': message, 'refused': True}
 
+    def _requires_stationary_position():
+        ok, distance, limit = _stationary_position_check(state)
+        if ok:
+            return None
+        message = (u'Station\u00e4rer Modus nicht m\u00f6glich: aktuelle GPS-Position '
+                   u'ist ca. {0} m vom konfigurierten Sensorstandort entfernt '
+                   u'(erlaubt: {1} m).'.format(distance, limit))
+        state.report_error(message)
+        write_log(1, message)
+        return {'value': message, 'refused': True,
+                'distance_m': distance, 'limit_m': limit}
+
     # Pruefen und Umschalten in einem Zug -- der Webserver bearbeitet
     # Anfragen parallel, zwei Starts zugleich ergaeben sonst zwei Modi.
     mode_lock = threading.Lock()
@@ -293,11 +398,15 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
                    or _requires_no_other_mode(u'Messfahrt'))
         if refused:
             return refused
+        if not state.recording:
+            state.set_trip_name(_query('name'))
         state.recording = True
         state.local = False
         state.stationary = False
         state.clear_error()
-        state.set_status(u'Messfahrt aktiv.')
+        place = state.trip_name()
+        state.set_status(u'Messfahrt aktiv%s.'
+                         % (u' - ' + place if place else u''))
         write_log(1, 'Start der Aufzeichnung')
         return {'value': u'Start der Aufzeichnung der Messwerte.'}
 
@@ -319,9 +428,12 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         # oeffentlichen Datensatz.
         refused = (_requires_sensor(u'Stationärer Modus')
                    or _requires_real_sensor(u'Stationärer Modus')
+                   or _requires_stationary_position()
                    or _requires_no_other_mode(u'Stationärer Modus'))
         if refused:
             return refused
+        state.set_place(u'')
+        state.set_trip_name(u'')
         state.recording = False
         state.local = False
         state.stationary = True
@@ -346,6 +458,7 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
                    or _requires_no_other_mode(u'Lokale Messung'))
         if refused:
             return refused
+        state.set_trip_name(u'')
         state.set_place(_query('place'))
         state.recording = False
         # Die lokale Messung laedt nichts hoch; das tut nur der
@@ -453,6 +566,8 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         now = time.time()
         age = state.measurement_age()
         fresh = age is not None and age <= config.MAX_MEASUREMENT_AGE
+        stat_pos_ok, stat_pos_distance, stat_pos_limit = _stationary_position_check(state)
+        active_place = snap['trip_name'] if snap['recording'] else snap['place']
         ret_data = {
             'value': snap['status_text'],
             'lat': '%.5f' % float(snap['lat']),
@@ -470,7 +585,8 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
             'recording': snap['recording'],
             'local': snap['local'],
             'stationary': snap['stationary'],
-            'place': snap['place'],
+            'place': active_place,
+            'trip_name': snap['trip_name'],
             'connection': snap['connection'],
             'connection_error': snap['connection_error'],
             'connection_wanted': snap['connection_wanted'],
@@ -492,6 +608,9 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
             'upload': _upload_view(snap['upload_info'], now),
             'outdir': to_text(config.OUTDIR),
             'stat_interval': config.STAT_INT,
+            'stationary_position_ok': stat_pos_ok,
+            'stationary_distance_m': stat_pos_distance,
+            'stationary_max_distance_m': stat_pos_limit,
         }
         return ret_data
 

@@ -829,8 +829,17 @@ class SessionTest(RecorderTestCase):
         self.assertEqual(session['points'], 2)
         self.assertTrue(os.path.exists(os.path.join(self.tmp, session['file'])))
 
-    def test_trip_session_has_no_place(self):
-        self.state.set_place(u'Halle')
+    def test_trip_session_uses_name(self):
+        self.state.set_trip_name(u'Von Essen nach Duisburg')
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._open_files(recorder_module.MODE_TRIP)
+        session = self.state.session()
+        self.assertEqual(session['place'], u'Von Essen nach Duisburg')
+        self.assertTrue(session['file'].startswith(u'feinstaub_von_essen_nach_duisburg_'),
+                        session)
+        self.assertIn('von_essen_nach_duisburg_25_line_', os.path.basename(rec._fname_25))
+
+    def test_trip_session_without_name_has_no_place(self):
         rec = Recorder(self.state, outdir=self.tmp)
         rec._open_files(recorder_module.MODE_TRIP)
         self.assertEqual(self.state.session()['place'], u'')

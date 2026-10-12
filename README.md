@@ -116,7 +116,11 @@ Sonne.
 auf einen Link liefe ins Leere. Unter Android öffnet die App die Links
 deshalb selbst im Browser des Systems (Route `/open/`, über
 `droid.view()`); erlaubt sind nur die Adressen aus `LINKS` in `config.py`.
-Am PC sind es gewöhnliche Links.
+Der Link *Sensor auf der Karte ansehen* bleibt auf den festen, bei
+sensor.community registrierten Sensorstandort zentriert. *Karte an meiner
+Position ansehen* erscheint bei Messfahrt und lokaler Messung; mit
+aktuellem GPS-Fix zentriert er auf die Handy-Position, sonst auf den
+festen Sensorstandort. Am PC sind es gewöhnliche Links.
 
 **Messintervall:** In der Karte *Messung* wählbar, von 5 s bis 15 min
 (`RECORD_INT_CHOICES`). Der Sensor liefert etwa einen Wert pro Sekunde; die
@@ -156,32 +160,39 @@ beenden.“
 
 | Modus | Schreibt (ein Punkt je Messintervall) | GPS | Upload |
 |---|---|---|---|
-| **Messfahrt** | zwei KML-Spuren (PM2.5, PM10) und eine CSV | ja, für die Spur | nein |
+| **Messfahrt** | zwei KML-Spuren (PM2.5, PM10) und eine CSV, optional mit Name im Dateinamen | ja, für die Spur | nein |
 | **Lokale Messung** | CSV, Ortsname im Dateinamen | nicht nötig | nein |
 | **Stationär** | CSV `feinstaub_stationaer_<Zeit>.csv` | nein | alle `STAT_INT` s der Mittelwert seit dem letzten Upload |
 
 Während einer Messung zeigt die Karte *Messung* Laufzeit, Zahl der Punkte,
-die Mittelwerte seit Start, den Dateinamen und im stationären Modus den
-letzten und den nächsten Upload, dazu einen Link zum eigenen Sensor auf
-der Karte von sensor.community. Nach dem Stoppen bleibt eine
+die Mittelwerte seit Start, den Dateinamen, bei Messfahrt und lokaler
+Messung einen Link zur Karte an der aktuellen GPS-Position und im
+stationären Modus den letzten und den nächsten Upload, dazu einen Link
+zum eigenen Sensor auf der Karte von sensor.community. Nach dem Stoppen
+bleibt eine
 Zusammenfassung stehen. Beim Stoppen, beim Wechsel des Modus und beim
 Beenden kommt das angefangene Intervall als letzte, kürzere Zeile in die
 Datei.
 
 * **Messfahrt:** Ohne aktuelle Position bleiben Breite und Länge in der CSV
   leer und die KML-Spur setzt aus. Danach beginnt sie neu, statt eine gerade
-  Linie über die Lücke zu ziehen.
+  Linie über die Lücke zu ziehen. Der optionale Name aus dem Eingabefeld
+  landet in CSV- und KML-Dateinamen, etwa
+  `feinstaub_von_essen_nach_duisburg_<Zeit>.csv`.
 * **Lokale Messung:** z. B. Kreidestaub in der Kletterhalle. Der Ort
   aus dem Eingabefeld landet im Dateinamen, etwa
   `feinstaub_kletterhalle_duisburg_20261008_17_08_24.csv`. Ohne Ort heißt
   die Datei `feinstaub_lokal_<Zeit>.csv`.
 * **Stationär:** Der einzige Modus, der Daten aus der Hand gibt. Er sendet
   öffentlich unter der Sensor-ID `XSENSOR`, also nur am mit luftdaten
-  vereinbarten Standort einschalten. Hochgeladen wird per HTTPS. Fehlt
-  QPython das `ssl`-Modul oder scheitert HTTPS dauerhaft an Zertifikaten
-  bzw. Protokoll, geht der Upload über HTTP. Ein Timeout zählt nicht als
-  dauerhaft. Auch nach Aus- und Wiedereinschalten wird nie öfter als alle
-  `STAT_INT` Sekunden gesendet.
+  vereinbarten Standort einschalten. Liegt ein aktueller GPS-Fix vor,
+  startet die App den Modus nur innerhalb von `STATIONARY_MAX_DISTANCE_M`
+  Metern um den konfigurierten Sensorstandort; ohne GPS/Fix, etwa am
+  Laptop, blockiert diese Prüfung nicht. Hochgeladen wird per HTTPS.
+  Fehlt QPython das `ssl`-Modul oder scheitert HTTPS dauerhaft an
+  Zertifikaten bzw. Protokoll, geht der Upload über HTTP. Ein Timeout
+  zählt nicht als dauerhaft. Auch nach Aus- und Wiedereinschalten wird
+  nie öfter als alle `STAT_INT` Sekunden gesendet.
 
 **Kein aktueller Messwert:** Ist der letzte Wert vom Sensor älter als
 `MAX_MEASUREMENT_AGE` (Verbindung weg), wird nichts hochgeladen, und ein
@@ -213,8 +224,9 @@ Zeit;PM2.5;PM10;Breite;Laenge
 Koordinaten mit sechs Nachkommastellen. Ohne aktuelle Position (älter als
 `GPS_MAX_AGE`, oder kein GPS wie am PC) bleiben Breite und Länge leer.
 
-**KML:** `feinstaub_25_line_<Zeit>.kml` und `feinstaub_10_line_<Zeit>.kml`,
-z. B. in Google Earth anzusehen. Jeder Punkt liegt so hoch wie sein
+**KML:** `feinstaub_25_line_<Zeit>.kml` und `feinstaub_10_line_<Zeit>.kml`
+bzw. mit Messfahrtnamen `feinstaub_<name>_25_line_<Zeit>.kml`, z. B. in
+Google Earth anzusehen. Jeder Punkt liegt so hoch wie sein
 Messwert, die Linie ist von grün (0) über gelb (25) nach rot (ab 50)
 gefärbt. Abgeschlossen werden die Dateien bei *Stop*, beim Moduswechsel
 und beim regulären Beenden der App. Wird QPython hart beendet (Akku leer,
@@ -288,6 +300,7 @@ KONFIGURATIONSOPTIONEN*:
 | `GPS_RESTART_AFTER` | `60` | GPS so viele Sekunden stumm: bei Android neu anmelden (nur auf dem Handy) |
 | `GPS_RESTART_MAX` | `600` | Obergrenze dieser Wartezeit, sie verdoppelt sich bis dahin |
 | `GPS_MAX_AGE` | `15` | Position älter als so viele Sekunden: nicht aufzeichnen |
+| `STATIONARY_MAX_DISTANCE_M` | `500` | Bei frischem GPS-Fix maximal erlaubte Entfernung vom konfigurierten Sensorstandort für den stationären Modus |
 | `STAT_INT` | `240` | Sekunden zwischen zwei Uploads im stationären Modus; sensor.community erwartet etwa alle 2–5 min einen Wert, also nicht unter 150 |
 | `MAX_MEASUREMENT_AGE` | `10` | Messwert älter als so viele Sekunden: nicht aufzeichnen, nicht hochladen |
 | `SENSOR_SILENCE_TIMEOUT` | `15` | So viele Sekunden keine Daten: Verbindung gilt als abgerissen, neu verbinden |
@@ -296,7 +309,7 @@ KONFIGURATIONSOPTIONEN*:
 | `SDS011_BLUETOOTH_DEVICE_ID` | `00:14:03:05:59:17` | MAC des eigenen Moduls, vorgewählt bzw. Rückfall, wenn keine Geräteliste kommt |
 | `XSENSOR` | `raspi-…` | Sensor-ID bei luftdaten.info |
 | `LUFTDATEN_URL` | `https://api.luftdaten.info/v1/push-sensor-data/` | Upload-Adresse |
-| `LINKS` | Karte sensor.community, Grenzwerte Umweltbundesamt | externe Seiten der Oberfläche; die Karte auf den eigenen Standort zentrieren |
+| `SENSOR_MAP_URL`, `LINKS` | Karte sensor.community, Grenzwerte Umweltbundesamt | externe Seiten der Oberfläche; `SENSOR_MAP_URL` auf den eigenen Sensorstandort zentrieren |
 | `HTTP_HOST` | `127.0.0.1` | Adresse des Webservers (überschreibbar per `SDS011_HOST`) |
 | `HTTP_PORT` | `8080` | Port des Webservers (überschreibbar per `SDS011_PORT`) |
 | `ANDROID_OUTDIR` | `/storage/emulated/0/Download/Feinstaub` | Ausgabeverzeichnis unter Android, `None` für `output/` (überschreibbar per `SDS011_OUTDIR`) |

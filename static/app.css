@@ -1030,6 +1030,17 @@ sub {
   cursor: pointer;
 }
 
+.mode-detail {
+  margin: -2px 0 12px 52px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.mode-detail.field,
+.mode-detail.note {
+  margin-bottom: 12px;
+}
+
 /* Das Radio bleibt fokussierbar und bedienbar (Pfeiltasten), nur
    unsichtbar; gezeichnet wird die Karte. */
 .mode input {
@@ -1337,6 +1348,12 @@ sub {
 
 .upload-next { color: var(--text-2); }
 
+.map-row {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
 .file-row {
   margin-top: 12px;
   color: var(--text-2);
@@ -1390,6 +1407,8 @@ sub {
 }
 
 .note .ext-link,
+.mode-detail .ext-link,
+.map-row .ext-link,
 .upload .ext-link {
   min-height: 36px;
   margin-top: 4px;

@@ -66,6 +66,19 @@ class RecordIntervalTest(unittest.TestCase):
         self.assertEqual(state.snapshot()['record_interval'], 60)
 
 
+class PlaceTest(unittest.TestCase):
+
+    def test_place_and_trip_name_are_separate(self):
+        state = AppState()
+        state.set_place(u'Halle')
+        state.set_trip_name(u'A40')
+        self.assertEqual(state.place(), u'Halle')
+        self.assertEqual(state.trip_name(), u'A40')
+        snap = state.snapshot()
+        self.assertEqual(snap['place'], u'Halle')
+        self.assertEqual(snap['trip_name'], u'A40')
+
+
 class HistoryTest(unittest.TestCase):
 
     def test_points_and_revision(self):

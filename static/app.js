@@ -53,6 +53,7 @@
   var STORE_RANGE = 'feinstaub.range';
   var STORE_MODE = 'feinstaub.mode';
   var STORE_PLACE = 'feinstaub.place';
+  var STORE_TRIP_NAME = 'feinstaub.trip_name';
   // Gleicher Schluessel wie das kleine Skript im <head> von index.html.
   var STORE_THEME = 'feinstaub.theme';
 
@@ -192,6 +193,11 @@
   function fmtTime(epoch) {
     var d = new Date(epoch * 1000);
     return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
+  function fmtMapCoord(value) {
+    var n = parseFloat(value);
+    return isNaN(n) ? null : n.toFixed(5);
   }
 
   // Dauer einer Messung: "45 s", "2:19 min", "1:05 h"
@@ -578,6 +584,45 @@
     setText(byId('gpsStatus'), text);
     setText(byId('gpsCoords'), coords);
     show(byId('gpsCoords'), !!coords);
+    applyPositionMapLinks(data);
+  }
+
+  function hasFreshGps(data) {
+    var age = data.gps_age;
+    var lat = parseFloat(data.lat);
+    var lon = parseFloat(data.lon);
+    return !!data.gps_available && isNumber(age) && age <= (data.gps_max_age || 15)
+      && !isNaN(lat) && !isNaN(lon)
+      && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+      && (lat !== 0 || lon !== 0);
+  }
+
+  function mapUrlAt(anchor, lat, lon) {
+    var fallback = anchor.getAttribute('data-map-fallback') || anchor.getAttribute('href') || '';
+    var match = fallback.match(/^(.*#)([^\/]+)\/[^\/]+\/[^\/]+$/);
+    if (!match) {
+      return fallback;
+    }
+    return match[1] + match[2] + '/' + lat + '/' + lon;
+  }
+
+  function applyPositionMapLinks(data) {
+    var links = document.querySelectorAll('a[data-link="karte_position"]');
+    var fresh = hasFreshGps(data);
+    var lat = fmtMapCoord(data.lat);
+    var lon = fmtMapCoord(data.lon);
+    var i, link, fallback;
+    for (i = 0; i < links.length; i++) {
+      link = links[i];
+      fallback = link.getAttribute('data-map-fallback');
+      if (!fallback) {
+        fallback = link.getAttribute('href') || '';
+        link.setAttribute('data-map-fallback', fallback);
+      }
+      setAttr(link, 'href', fresh ? mapUrlAt(link, lat, lon) : fallback);
+      setAttr(link, 'title', fresh ? 'Karte an aktueller GPS-Position'
+              : 'Karte am festen Sensorstandort');
+    }
   }
 
   // -- Messintervall ---------------------------------------------------
@@ -660,13 +705,14 @@
     renderModeDetails();
   }
 
-  // Ortsfeld nur bei "Lokal", Upload-Warnung nur bei "Stationaer"
+  // Zusatzbereich direkt unter dem gewaehlten Modus.
   function renderModeDetails() {
     var mode = selectedMode();
     var i;
     for (i = 0; i < MODE_KEYS.length; i++) {
       setClass(byId(MODES[MODE_KEYS[i]].card), 'is-selected', MODE_KEYS[i] === mode);
     }
+    show(byId('tripDetails'), mode === 'trip');
     show(byId('placeField'), mode === 'local');
     show(byId('statWarn'), mode === 'stat');
     setText(byId('startText'), MODES[mode].action);
@@ -687,13 +733,17 @@
     // zusaetzlich. Stoppen geht immer, auch ohne Sensor.
     // Simulierte Werte nie oeffentlich hochladen: stationaer gesperrt.
     var statBlocked = !!data.simulated && selectedMode() === 'stat';
-    setButton(byId('startBtn'), connected && !active && !statBlocked);
+    var positionBlocked = data.stationary_position_ok === false && selectedMode() === 'stat';
+    setButton(byId('startBtn'), connected && !active && !statBlocked && !positionBlocked);
     setButton(byId('stopBtn'), !!active);
     setText(byId('startHint'), !connected ? 'Zuerst oben den Sensor verbinden.'
             : statBlocked ? 'Mit dem simulierten Sensor wird nichts hochgeladen. '
                             + 'Für den stationären Modus einen echten Sensor verbinden.'
+            : positionBlocked ? 'Stationär nur am konfigurierten Standort starten: '
+                                + 'aktuell ca. ' + data.stationary_distance_m + ' m entfernt, '
+                                + 'erlaubt sind ' + data.stationary_max_distance_m + ' m.'
             : '');
-    show(byId('startHint'), (!connected || statBlocked) && !active);
+    show(byId('startHint'), (!connected || statBlocked || positionBlocked) && !active);
 
     // Laufenden Modus vorwaehlen -- nach dem Stoppen steht er dann noch da.
     if (active) {
@@ -708,8 +758,12 @@
       if (previous && previous !== 'stat') {
         selectMode(previous);
       }
-      if (previous === 'local' && data.session.place && !byId('placeInput').value) {
-        byId('placeInput').value = data.session.place;
+      if (data.session && data.session.place) {
+        if (previous === 'local' && !byId('placeInput').value) {
+          byId('placeInput').value = data.session.place;
+        } else if (previous === 'trip' && !byId('tripNameInput').value) {
+          byId('tripNameInput').value = data.session.place;
+        }
       }
       modeSettled = true;
     }
@@ -718,6 +772,10 @@
     var place = byId('placeInput');
     if (data.local && document.activeElement !== place && data.place !== undefined) {
       place.value = data.place;
+    }
+    var tripName = byId('tripNameInput');
+    if (data.recording && document.activeElement !== tripName && data.place !== undefined) {
+      tripName.value = data.place;
     }
   }
 
@@ -728,6 +786,10 @@
       var place = byId('placeInput').value || '';
       storageSet(STORE_PLACE, place);
       path += '?place=' + encodeURIComponent(place);
+    } else if (mode === 'trip') {
+      var name = byId('tripNameInput').value || '';
+      storageSet(STORE_TRIP_NAME, name);
+      path += '?name=' + encodeURIComponent(name);
     }
     command(path, byId('startBtn'), MODES[mode].name + ' konnte nicht gestartet werden.');
   }
@@ -810,10 +872,12 @@
   function applySession(data) {
     var active = activeMode(data);
     var session = data.session || null;
+    show(byId('positionMapRun'), active === 'trip' || active === 'local');
 
     if (active) {
       var running = runningSession(data);
-      var place = active === 'local' && data.place ? ' · ' + data.place : '';
+      var place = (active === 'local' || active === 'trip') && data.place
+        ? ' · ' + data.place : '';
       setText(byId('sessionMode'), MODES[active].name + ' läuft' + place);
       setText(byId('sessionPoints'), running && isNumber(running.points) ? running.points : '–');
       setText(byId('sessionAvg25'), running ? fmtValue(running.avg_pm25) : '–');
@@ -1139,6 +1203,10 @@
     if (place) {
       byId('placeInput').value = place;
     }
+    var tripName = storageGet(STORE_TRIP_NAME);
+    if (tripName) {
+      byId('tripNameInput').value = tripName;
+    }
   }
 
   function wire() {
@@ -1171,7 +1239,13 @@
       });
     }
 
-    // Enter im Ortsfeld startet die lokale Messung
+    // Enter in Name/Ort startet die gewaehlte Messung
+    byId('tripNameInput').addEventListener('keydown', function (event) {
+      if ((event.key === 'Enter' || event.keyCode === 13) && !byId('startBtn').disabled) {
+        event.preventDefault();
+        onStart();
+      }
+    });
     byId('placeInput').addEventListener('keydown', function (event) {
       if ((event.key === 'Enter' || event.keyCode === 13) && !byId('startBtn').disabled) {
         event.preventDefault();
