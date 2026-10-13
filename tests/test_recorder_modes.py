@@ -217,6 +217,18 @@ class StaleMeasurementTest(RecorderTestCase):
                   for v in json.loads(self.posts[-1])['sensordatavalues']}
         self.assertEqual(values, {'P1': '6.0', 'P2': '5.0'})
 
+    def test_power_save_sleep_window_is_uploaded(self):
+        """Bei 5 min Messintervall schlaeft der SDS011 planmaessig; der
+        Upload darf Werte aus diesem Fenster nicht als veraltet verwerfen."""
+        self.state.set_record_interval(300)
+        rec = Recorder(self.state, outdir=self.tmp, max_age=10)
+        self.assertTrue(rec._push_step())
+        self.state.set_measurement(10.0, 20.0, at=monotonic() - 100)
+        self.assertTrue(rec._push_step())
+        values = {v['value_type']: v['value']
+                  for v in json.loads(self.posts[-1])['sensordatavalues']}
+        self.assertEqual(values, {'P1': '20.0', 'P2': '10.0'})
+
 
 class ModeSwitchTest(RecorderTestCase):
 

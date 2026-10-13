@@ -115,6 +115,24 @@ def _upload_view(info, now):
     return view
 
 
+def _measurement_fresh_for_status(snap, age):
+    """Ob der letzte Wert in der Oberflaeche noch eingestuft wird.
+
+    Bei SDS011-Working-Period ist eine laengere Stille geplant; dann ist
+    der letzte Wert waehrend des Sensorzyklus nicht "veraltet".
+    """
+    if age is None:
+        return False
+    if age <= config.MAX_MEASUREMENT_AGE:
+        return True
+    if (snap['connection'] == u'verbunden'
+            and snap['record_interval'] >= config.SDS011_POWER_SAVE_MIN_INTERVAL):
+        limit = (config.SDS011_POWER_SAVE_PERIOD * 60
+                 + config.SDS011_POWER_SAVE_SILENCE_SLACK)
+        return age <= limit
+    return False
+
+
 # Zeitraeume des Diagramms in Sekunden, 0 = alles.
 CHART_RANGES = (600, 3600, 21600, 0)
 MAP_FRAGMENT_RE = re.compile(r'^(.*#)([^/]+)/([^/]+)/([^/]+)$')
@@ -565,7 +583,7 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         snap = state.snapshot()
         now = time.time()
         age = state.measurement_age()
-        fresh = age is not None and age <= config.MAX_MEASUREMENT_AGE
+        fresh = _measurement_fresh_for_status(snap, age)
         stat_pos_ok, stat_pos_distance, stat_pos_limit = _stationary_position_check(state)
         active_place = snap['trip_name'] if snap['recording'] else snap['place']
         ret_data = {

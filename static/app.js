@@ -544,8 +544,15 @@
     }
     var text;
     if (fresh) {
-      text = !isNumber(age) ? 'live'
-        : age <= 0 ? 'live · gerade eben' : 'live · vor ' + age + ' s';
+      if (!isNumber(age)) {
+        text = 'live';
+      } else if (age <= 0) {
+        text = 'live · gerade eben';
+      } else if (age > LIVE_MAX_AGE) {
+        text = 'Sensorzyklus · letzter Wert vor ' + fmtAge(age);
+      } else {
+        text = 'live · vor ' + age + ' s';
+      }
     } else if (!connected) {
       text = isNumber(age) ? 'kein Sensor · letzter Wert vor ' + fmtAge(age) : 'kein Sensor';
     } else if (isNumber(age)) {

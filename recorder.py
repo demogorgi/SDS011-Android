@@ -398,6 +398,11 @@ class Recorder(threading.Thread):
         age = self._state.measurement_age()
         return age is not None and age <= self._max_age
 
+    def _accepts_sleeping_window(self):
+        """Im SDS011-Working-Period-Modus sind Werte aus dem Fenster
+        brauchbar, auch wenn der letzte Einzelwert inzwischen schlaeft."""
+        return self._interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL
+
     def _check_fresh(self, fresh, consequence):
         """Zeigt den Hinweis "Kein aktueller Messwert" an, der die Folge
         nennt (consequence, etwa 'nichts aufgezeichnet'), oder raeumt ihn
@@ -603,7 +608,12 @@ class Recorder(threading.Thread):
             self._state.report_error(message)
             self._uploaded(False, message)
             return True
-        if self._fresh_measurement(self._consequence(u'nichts hochgeladen')) is None:
+        count = totals[0] - self._push_totals[0] if self._push_totals is not None else 0
+        if count <= 0 or not self._accepts_sleeping_window():
+            fresh = self._is_fresh()
+        else:
+            fresh = True
+        if not self._check_fresh(fresh, self._consequence(u'nichts hochgeladen')):
             # Das Upload-Fenster beginnt hier neu. Sonst mittelte der
             # naechste Versuch (nach PUSH_RETRY s, wenn der Sensor wieder
             # liefert) bis zu STAT_INT s alte Werte von vor dem Ausfall

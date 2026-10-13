@@ -729,6 +729,24 @@ class StatusFieldsTest(unittest.TestCase):
         self.assertEqual(payload['pm_25_level'], 'none')
         self.assertEqual(payload['pm_10_level'], 'none')
 
+    def test_power_save_sleep_value_keeps_level(self):
+        """Im SDS011-Working-Period-Modus ist ein aelterer Wert waehrend
+        des geplanten Sensorzyklus nicht veraltet."""
+        from state import monotonic
+        self.state.set_record_interval(300)
+        self.state.set_connection(u'verbunden')
+        self.state.set_measurement(10.0, 20.0, at=monotonic() - 100)
+        payload = self.status()
+        self.assertEqual(payload['measurement_age'], 100)
+        self.assertEqual(payload['pm_25_level'], 'good')
+        self.assertEqual(payload['pm_10_level'], 'good')
+
+        too_old = config.SDS011_POWER_SAVE_PERIOD * 60 + config.SDS011_POWER_SAVE_SILENCE_SLACK + 1
+        self.state.set_measurement(10.0, 20.0, at=monotonic() - too_old)
+        payload = self.status()
+        self.assertEqual(payload['pm_25_level'], 'none')
+        self.assertEqual(payload['pm_10_level'], 'none')
+
     def test_history_and_next_point(self):
         import time
         self.state.add_history_point(time.time(), 1.0, 2.0, 10, False)
