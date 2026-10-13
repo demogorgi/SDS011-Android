@@ -239,8 +239,9 @@ class Recorder(threading.Thread):
         # Upload-Fenster: Summen beim letzten Upload bzw. beim Einschalten
         # des stationaeren Modus.
         self._push_totals = None
-        # Zeitpunkt (monotonic) des letzten Uploads. Bleibt beim Aus- und
-        # Wiedereinschalten erhalten: nie oefter als alle STAT_INT senden.
+        # Zeitpunkt (monotonic) des letzten Uploads. Bleibt fuer die
+        # Anzeige und alte Tests erhalten; der stationaere Upload folgt
+        # inzwischen den Messpunkten statt einem eigenen Timer.
         self._last_push = None
         # Neuer Versuch (monotonic), wenn mangels Messwert nichts
         # hochgeladen wurde; sonst None.
@@ -395,22 +396,24 @@ class Recorder(threading.Thread):
         return default
 
     def _is_fresh(self):
-        age = self._state.measurement_age()
+        age = self._state.usable_measurement_age()
         return age is not None and age <= self._max_age
 
     def _accepts_sleeping_window(self):
-        """Im SDS011-Working-Period-Modus sind Werte aus dem Fenster
-        brauchbar, auch wenn der letzte Einzelwert inzwischen schlaeft."""
+        """Im Sleep/Wake-Modus sind Werte aus dem Fenster brauchbar,
+        auch wenn der letzte verwertbare Einzelwert inzwischen schlaeft."""
         return self._interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL
 
     def _sleep_age_limit(self):
         """So alt darf der letzte Wert waehrend geplanter Schlafphasen sein."""
-        return (config.SDS011_POWER_SAVE_PERIOD * 60
+        return (max(self._interval(),
+                    config.SDS011_POWER_SAVE_SETTLE
+                    + config.SDS011_POWER_SAVE_SAMPLE_WINDOW)
                 + config.SDS011_POWER_SAVE_SILENCE_SLACK)
 
     def _is_expected_sleeping(self):
-        """True, wenn die Stille zum SDS011-Working-Period-Zyklus passt."""
-        age = self._state.measurement_age()
+        """True, wenn die Stille zum geplanten Sleep/Wake-Zyklus passt."""
+        age = self._state.usable_measurement_age()
         return (age is not None and self._accepts_sleeping_window()
                 and age > self._max_age and age <= self._sleep_age_limit())
 
@@ -438,7 +441,7 @@ class Recorder(threading.Thread):
         """
         if not self._check_fresh(self._is_fresh(), consequence):
             return None
-        return self._state.measurement()
+        return self._state.usable_measurement()
 
     def _window_mean(self, since, totals):
         """Mittelwert (pm_25, pm_10) der Sensorwerte zwischen zwei Staenden
@@ -449,7 +452,7 @@ class Recorder(threading.Thread):
             if count > 0:
                 return ((totals[1] - since[1]) / float(count),
                         (totals[2] - since[2]) / float(count))
-        return self._state.measurement()
+        return self._state.usable_measurement()
 
     # -- Ein Messschritt ----------------------------------------------
     def _record_step(self, final=False):
@@ -482,7 +485,7 @@ class Recorder(threading.Thread):
             # Linie ueber den ganzen Ausfall zu ziehen.
             self._lat_old = None
             self._lon_old = None
-            return
+            return False
 
         mean_25, mean_10 = self._window_mean(since, totals)
         text_25 = _value(mean_25)
@@ -494,7 +497,7 @@ class Recorder(threading.Thread):
         if not recording:
             # Ohne Messung nur als Vorschau im Diagramm.
             self._state.add_history_point(epoch, pm_25, pm_10, interval, False)
-            return
+            return True
 
         try:
             self._write_point(text_25, text_10, pm_25, pm_10)
@@ -508,6 +511,7 @@ class Recorder(threading.Thread):
         # Erst nach einem gelungenen Schreiben: ein bleibender
         # Schreibfehler soll nicht bei jedem Versuch kurz verschwinden.
         self._clear(HINT_FAILURE)
+        return True
 
     def _point_interval(self, final=False):
         """Ueber wie viele Sekunden der faellige Punkt gemittelt hat. Das
@@ -669,23 +673,24 @@ class Recorder(threading.Thread):
                 datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             self._state.set_status(text)
             write_log(1, text)
-            self._uploaded(True, u'Daten zu luftdaten übertragen.')
+            self._uploaded(True, u'Daten zu luftdaten übertragen.', pm_25, pm_10)
         else:
             message = u'Fehler bei Datenübertragung, Status Code {0}.'.format(status_code)
             self._state.report_error(message)
             write_log(0, u'Upload Status Code {0}'.format(status_code))
-            self._uploaded(False, message)
+            self._uploaded(False, message, pm_25, pm_10)
         return True
 
-    def _uploaded(self, ok, message):
+    def _uploaded(self, ok, message, pm_25=None, pm_10=None):
         now = self._clock()
         self._set_upload_info(last_at=now, last_ok=ok, last_message=message,
-                              next_at=now + self._stat_interval)
+                              last_pm25=pm_25, last_pm10=pm_10)
 
     def _set_upload_info(self, **fields):
         """Aendert einzelne Felder der Upload-Anzeige im AppState."""
         info = self._state.upload_info() or {
-            'last_at': None, 'last_ok': None, 'last_message': u'', 'next_at': None}
+            'last_at': None, 'last_ok': None, 'last_message': u'',
+            'last_pm25': None, 'last_pm10': None, 'next_at': None}
         info.update(fields)
         self._state.set_upload_info(info)
 
@@ -726,8 +731,12 @@ class Recorder(threading.Thread):
             self._push_retry_at = _now() + min(self._interval(), self.PUSH_RETRY)
 
     def _push_due(self, now):
-        """Wann (monotonic) der naechste Upload faellig ist: beim ersten
-        Mal sofort, danach STAT_INT nach dem letzten."""
+        """Wann (monotonic) ein alter, timerbasierter Upload faellig waere.
+
+        Der laufende stationaere Modus nutzt diese Planung nicht mehr:
+        Uploads passieren mit neuen Messpunkten. Die Methode bleibt fuer
+        isolierte Tests und direkte Aufrufe erhalten.
+        """
         if self._push_retry_at is not None:
             return self._push_retry_at
         if self._last_push is None:
@@ -772,15 +781,16 @@ class Recorder(threading.Thread):
 
     def _wait_until_due(self, mode):
         """Wartet in Tick-Schritten, bis ein Punkt oder (stationaer) ein
-        Upload faellig ist. Liefert (punkt_faellig, upload_faellig) oder
-        None, wenn vorher beendet oder der Modus gewechselt wurde.
+        Upload faellig ist. Im stationaeren Modus ist der Upload-Termin
+        derselbe wie der naechste Messpunkt. Liefert
+        (punkt_faellig, upload_faellig) oder None, wenn vorher beendet
+        oder der Modus gewechselt wurde.
 
         Die Termine werden bei jedem Tick neu berechnet: wird das
         Messintervall in der Oberflaeche verkuerzt, ist der Punkt evtl.
         sofort faellig. Wichtig ist das schnelle Reagieren auch fuer Stop
         (sonst bleiben die KML-Dateien ein ganzes Intervall lang
-        unabgeschlossen) und fuer den stationaeren Modus, der sonst bis zu
-        STAT_INT Sekunden lang den Start einer Messfahrt verschluckt.
+        unabgeschlossen) und fuer den stationaeren Modus.
         Gewartet wird bis genau zum Termin, nicht in festen Schritten,
         damit sich der Overhead von Event.wait() nicht aufaddiert.
         """
@@ -794,7 +804,7 @@ class Recorder(threading.Thread):
                 self._clear(HINT_STALE)
             now = _now()
             record_at = self._window_start + self._interval()
-            push_at = self._push_due(now) if mode == MODE_STATIONARY else None
+            push_at = record_at if mode == MODE_STATIONARY else None
             self._publish(now, record_at, push_at)
             record_due = now >= record_at
             push_due = push_at is not None and now >= push_at
@@ -846,7 +856,7 @@ class Recorder(threading.Thread):
         Wechselt der Modus, werden alte Dateien geschlossen, neue
         geoeffnet und ein neues Fenster begonnen. Dann wird gewartet, bis
         ein Punkt (jedes Messintervall, auch ohne Modus fuer den Verlauf)
-        oder ein Upload (nur stationaer) faellig ist. Beim Stop werden
+        oder ein Upload mit neuem Messpunkt (nur stationaer) faellig ist. Beim Stop werden
         ausserdem eigene Hinweise weggeraeumt.
         """
         mode = self._mode()
@@ -877,12 +887,13 @@ class Recorder(threading.Thread):
         if due is None:
             return
         record_due, push_due = due
+        recorded = False
         if record_due:
             try:
-                self._record_step()
+                recorded = self._record_step()
             finally:
                 self._advance_window()
-        if push_due:
+        if push_due and (not record_due or recorded):
             self._push()
 
     def run(self):

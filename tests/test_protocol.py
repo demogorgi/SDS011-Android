@@ -58,6 +58,14 @@ class CommandTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 protocol.build_work_period_command(value)
 
+    def test_sleep_and_wake_commands(self):
+        sleep = protocol.build_sleep_command(True, device_id=0xA160)
+        wake = protocol.build_sleep_command(False, device_id=0xA160)
+        self.assertEqual(sleep[:5], b'\xaa\xb4\x06\x01\x00')
+        self.assertEqual(wake[:5], b'\xaa\xb4\x06\x01\x01')
+        self.assertEqual(sleep[15:17], b'\xa1\x60')
+        self.assertEqual(wake[-2], sum(bytearray(wake[2:17])) % 256)
+
 
 class RejectTest(unittest.TestCase):
 

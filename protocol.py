@@ -4,7 +4,8 @@
 Reine Byte-Arithmetik ohne Hardware und Threads, deshalb vollstaendig am
 PC testbar. sensor.py nutzt den FrameDecoder, die Simulation in
 transport.py baut ihre Pakete mit build_frame() und sensor.py
-Konfigurationskommandos mit build_work_period_command().
+Konfigurationskommandos mit build_sleep_command() und
+build_work_period_command().
 
 Ein Datenpaket ist 10 Byte lang:
 
@@ -27,6 +28,7 @@ FRAME_LEN = 10
 COMMAND_FRAME_LEN = 19
 
 CMD_WORK_PERIOD = 0x08
+CMD_SLEEP = 0x06
 
 _HEAD_BYTES = b'\xaa'
 
@@ -128,6 +130,15 @@ def build_work_period_command(minutes, device_id=0xFFFF):
     if minutes < 0 or minutes > 30:
         raise ValueError('working period must be between 0 and 30 minutes')
     return build_command(CMD_WORK_PERIOD, True, minutes, device_id)
+
+
+def build_sleep_command(sleeping, device_id=0xFFFF):
+    """Setzt den manuellen Schlafzustand.
+
+    sleeping=True schaltet Laser und Luefter aus. sleeping=False weckt den
+    Sensor; im Dauerbetrieb sendet er danach wieder etwa 1 Paket/s.
+    """
+    return build_command(CMD_SLEEP, True, 0 if sleeping else 1, device_id)
 
 
 class FrameDecoder(object):

@@ -367,6 +367,7 @@ class FakeTransport(Transport):
         self.connect_attempts = 0
         self.writes = []
         self.work_period_minutes = 0
+        self.sleeping = False
 
         self._random = random.Random(seed)
         # Ruhige Grundlast, wie sie an einem normalen Tag anliegt.
@@ -435,6 +436,8 @@ class FakeTransport(Transport):
         if self._drop_after is not None and self._reads > self._drop_after:
             self._connected = False
             raise TransportError(u'Verbindung zum Sensor verloren (simuliert).')
+        if self.sleeping:
+            return b''
 
         now = self._clock()
         if now >= self._next_frame:
@@ -458,6 +461,10 @@ class FakeTransport(Transport):
                 and data[1] == protocol.COMMAND and data[2] == protocol.CMD_WORK_PERIOD
                 and data[3] == 1):
             self.work_period_minutes = data[4]
+        if (len(data) == protocol.COMMAND_FRAME_LEN and data[0] == protocol.HEAD
+                and data[1] == protocol.COMMAND and data[2] == protocol.CMD_SLEEP
+                and data[3] == 1):
+            self.sleeping = data[4] == 0
         write_log(3, u'FakeTransport write {0} byte'.format(len(data)))
 
     def close(self):

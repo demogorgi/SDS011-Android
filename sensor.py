@@ -46,29 +46,41 @@ class SensorReader(threading.Thread):
         self._working_period = None
         self._running = True
         self.frames_seen = 0
-        self._frames_since_connect = 0
+        self._first_frame_at = None
+        self._power_save_active = False
+        self._power_save_cycle_started_at = None
+        self._power_save_next_wake_at = None
+        self._sleeping = None
 
     # -- Verbindung ---------------------------------------------------
-    def _wanted_working_period(self):
-        """SDS011 Working Period fuer das aktuelle Messintervall."""
-        if (self._frames_since_connect > 0
-                and self._state.record_interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL):
-            return config.SDS011_POWER_SAVE_PERIOD
-        return 0
+    def _awake_seconds(self):
+        return (config.SDS011_POWER_SAVE_SETTLE
+                + config.SDS011_POWER_SAVE_SAMPLE_WINDOW)
+
+    def _cycle_seconds(self):
+        return max(float(self._state.record_interval()), self._awake_seconds())
+
+    def _usable_sample(self, now):
+        """True, wenn ein Rohwert in Mittelwerte einfliessen darf."""
+        if not self._power_save_active:
+            return True
+        if self._power_save_cycle_started_at is None:
+            self._power_save_cycle_started_at = now
+        return (now - self._power_save_cycle_started_at
+                >= config.SDS011_POWER_SAVE_SETTLE)
 
     def _silence_limit(self):
         """Wie lange Stille normal ist.
 
-        Im SDS011-Working-Period-Modus schlaeft der Sensor zwischen den
-        30-s-Messphasen. Diese geplante Pause darf nicht als
-        Verbindungsabbruch gelten.
+        Im manuellen Energiesparmodus schlaeft der Sensor zwischen den
+        Wachphasen. Diese geplante Pause darf nicht als
+        Verbindungsabbruch gelten. Beim Wecken setzt _set_sleeping(False)
+        _last_data neu, damit der Sensor ein paar Sekunden fuer den ersten
+        Frame hat.
         """
-        period = self._working_period
-        if period is None:
-            period = self._wanted_working_period()
-        if period > 0:
+        if self._sleeping:
             return max(self._silence_timeout,
-                       period * 60 + config.SDS011_POWER_SAVE_SILENCE_SLACK)
+                       self._cycle_seconds() + config.SDS011_POWER_SAVE_SILENCE_SLACK)
         return self._silence_timeout
 
     def _set_working_period(self, minutes, reason):
@@ -80,11 +92,69 @@ class SensorReader(threading.Thread):
                  else u'{0}-Minuten-Zyklus'.format(minutes))
         write_log(1, u'SDS011: {0} ({1})'.format(label, reason))
 
-    def _apply_working_period(self):
-        wanted = self._wanted_working_period()
-        if wanted != self._working_period:
-            self._set_working_period(wanted, u'Messintervall {0} s'.format(
-                self._state.record_interval()))
+    def _set_sleeping(self, sleeping, reason):
+        """Schlaeft oder weckt den Sensor per manuellem Sleep-Kommando."""
+        if self._sleeping is sleeping:
+            return
+        command = protocol.build_sleep_command(sleeping)
+        self._transport.write(command)
+        self._sleeping = sleeping
+        label = u'Schlaf' if sleeping else u'wach'
+        write_log(1, u'SDS011: {0} ({1})'.format(label, reason))
+        if not sleeping:
+            # Nach einer geplanten Schlafphase ist _last_data alt. Ab dem
+            # Wake-Kommando soll der normale Stille-Waechter wieder gelten.
+            self._last_data = monotonic()
+
+    def _reset_power_save(self):
+        self._power_save_active = False
+        self._power_save_cycle_started_at = None
+        self._power_save_next_wake_at = None
+        self._first_frame_at = None
+
+    def _ensure_continuous_awake(self, reason):
+        """Dauerbetrieb und wach: Grundlage fuer echte 1-Hz-Rohwerte."""
+        if self._working_period != 0:
+            self._set_working_period(0, reason)
+        self._set_sleeping(False, reason)
+
+    def _apply_power_save(self):
+        interval = self._state.record_interval()
+        reason = u'Messintervall {0} s'.format(interval)
+        if interval < config.SDS011_POWER_SAVE_MIN_INTERVAL:
+            self._reset_power_save()
+            self._ensure_continuous_awake(reason)
+            return
+
+        if not self._power_save_active:
+            self._reset_power_save()
+            self._power_save_active = True
+        if self._working_period != 0:
+            self._set_working_period(0, reason)
+
+        now = monotonic()
+        if self._sleeping:
+            if self._power_save_cycle_started_at is not None:
+                self._power_save_next_wake_at = (
+                    self._power_save_cycle_started_at + self._cycle_seconds())
+            if self._power_save_next_wake_at is not None and now >= self._power_save_next_wake_at:
+                self._set_sleeping(False, u'geplante Wachphase')
+                self._power_save_cycle_started_at = None
+                self._power_save_next_wake_at = None
+                self._first_frame_at = None
+            return
+        if self._sleeping is None:
+            self._set_sleeping(False, reason)
+
+        if self._first_frame_at is None:
+            return
+        if self._power_save_cycle_started_at is None:
+            self._power_save_cycle_started_at = self._first_frame_at
+        if now - self._power_save_cycle_started_at >= self._awake_seconds():
+            self._power_save_next_wake_at = (
+                self._power_save_cycle_started_at + self._cycle_seconds())
+            self._first_frame_at = None
+            self._set_sleeping(True, reason)
 
     def _restore_continuous(self, reason):
         """Beim Trennen/Beenden den persistenten Working-Period-Wert
@@ -95,11 +165,14 @@ class SensorReader(threading.Thread):
             self._working_period = None
             return
         try:
+            self._set_sleeping(False, reason)
             self._set_working_period(0, reason)
         except Exception as exc:
             write_log(0, u'SDS011-Dauerbetrieb konnte nicht gesetzt werden: {0}'.format(
                 to_text(exc)))
         self._working_period = None
+        self._sleeping = None
+        self._reset_power_save()
 
     def _drop(self, message):
         """Verbindung trennen, Decoder zuruecksetzen und den Grund anzeigen.
@@ -112,6 +185,8 @@ class SensorReader(threading.Thread):
         except Exception as exc:
             write_log(0, u'disconnect fehlgeschlagen: {0}'.format(to_text(exc)))
         self._working_period = None
+        self._sleeping = None
+        self._reset_power_save()
         self._decoder = FrameDecoder()
         if self._state.connection_wanted:
             self._state.set_connection(state_module.CONN_RETRYING, message)
@@ -156,8 +231,9 @@ class SensorReader(threading.Thread):
         try:
             self._transport.connect(device_id)
             self._working_period = None
-            self._frames_since_connect = 0
-            self._apply_working_period()
+            self._sleeping = None
+            self._reset_power_save()
+            self._ensure_continuous_awake(u'Verbinden')
         except TransportError as exc:
             try:
                 self._transport.disconnect()
@@ -213,7 +289,7 @@ class SensorReader(threading.Thread):
 
             # 3. Verbunden -- lesen.
             try:
-                self._apply_working_period()
+                self._apply_power_save()
                 chunk = self._transport.read(self.READ_SIZE)
             except TransportError as exc:
                 write_log(0, u'Lesefehler: {0}'.format(to_text(exc)))
@@ -250,8 +326,12 @@ class SensorReader(threading.Thread):
 
             for reading in self._decoder.feed(chunk):
                 self.frames_seen += 1
-                self._frames_since_connect += 1
-                self._state.set_measurement(reading.pm_25, reading.pm_10)
+                read_at = monotonic()
+                if self._first_frame_at is None:
+                    self._first_frame_at = read_at
+                self._state.set_measurement(reading.pm_25, reading.pm_10,
+                                            at=read_at,
+                                            usable=self._usable_sample(read_at))
                 write_log(3, u'pm_25={0}, pm_10={1}'.format(
                     reading.pm_25, reading.pm_10))
 

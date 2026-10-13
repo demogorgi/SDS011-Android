@@ -162,6 +162,7 @@ class NoUploadTest(unittest.TestCase):
         """Gegenprobe: im stationaeren Modus muss es passieren."""
         calls = []
         state = AppState()
+        state.set_measurement(12.3, 45.6)
         recorder = Recorder(state, outdir=tempfile.mkdtemp(),
                             record_interval=0.05, tick=0.01, stat_interval=0.05)
         recorder._push_step = lambda: calls.append(1)

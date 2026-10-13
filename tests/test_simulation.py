@@ -281,7 +281,7 @@ class RecorderTest(_NoFakeEnv):
 
     def test_real_sensor_uploads(self):
         self.run_mode('stationary', '00:14:03:05:59:17')
-        self.assertEqual(len(self.posts), 1)
+        self.assertGreaterEqual(len(self.posts), 1)
 
 
 if __name__ == '__main__':

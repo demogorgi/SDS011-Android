@@ -112,13 +112,16 @@ def _upload_view(info, now):
         return None
     view = dict(info)
     view['next_in'] = _seconds_until(info.get('next_at'), now)
+    for key in ('last_pm25', 'last_pm10'):
+        if view.get(key) is not None:
+            view[key] = round(view[key], 1)
     return view
 
 
 def _measurement_fresh_for_status(snap, age):
     """Ob der letzte Wert in der Oberflaeche noch eingestuft wird.
 
-    Bei SDS011-Working-Period ist eine laengere Stille geplant; dann ist
+    Bei geplantem SDS011-Sleep/Wake ist eine laengere Stille geplant; dann ist
     der letzte Wert waehrend des Sensorzyklus nicht "veraltet".
     """
     if age is None:
@@ -127,7 +130,9 @@ def _measurement_fresh_for_status(snap, age):
         return True
     if (snap['connection'] == u'verbunden'
             and snap['record_interval'] >= config.SDS011_POWER_SAVE_MIN_INTERVAL):
-        limit = (config.SDS011_POWER_SAVE_PERIOD * 60
+        limit = (max(snap['record_interval'],
+                     config.SDS011_POWER_SAVE_SETTLE
+                     + config.SDS011_POWER_SAVE_SAMPLE_WINDOW)
                  + config.SDS011_POWER_SAVE_SILENCE_SLACK)
         return age <= limit
     return False
@@ -245,6 +250,7 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         return template('index.html', template_lookup=TEMPLATE_LOOKUP,
                         xsensor=config.XSENSOR, outdir=config.OUTDIR,
                         intervals=config.RECORD_INT_CHOICES,
+                        stationary_intervals=config.STATIONARY_RECORD_INT_CHOICES,
                         links=config.LINKS, open_external=open_url is not None)
 
     @app.route('/open/')
@@ -405,6 +411,21 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
     # Pruefen und Umschalten in einem Zug -- der Webserver bearbeitet
     # Anfragen parallel, zwei Starts zugleich ergaeben sonst zwei Modi.
     mode_lock = threading.Lock()
+    # Laden, aendern, speichern in einem Zug: bei zwei Anfragen zugleich
+    # ginge sonst eine Aenderung verloren.
+    settings_lock = threading.Lock()
+
+    def _store_interval(seconds):
+        with settings_lock:
+            state.set_record_interval(seconds)
+            stored = settings.load()
+            stored['record_interval'] = seconds
+            return settings.save(stored)
+
+    def _ensure_stationary_interval():
+        if state.record_interval() in config.STATIONARY_RECORD_INT_CHOICES:
+            return
+        state.set_record_interval(config.STATIONARY_RECORD_INT_CHOICES[0])
 
     @app.route('/start/')
     def start_measure():
@@ -452,6 +473,7 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
             return refused
         state.set_place(u'')
         state.set_trip_name(u'')
+        _ensure_stationary_interval()
         state.recording = False
         state.local = False
         state.stationary = True
@@ -498,23 +520,17 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         return {'value': u'Lokale Messung beendet.'}
 
     # -- Messintervall und Verlauf ------------------------------------
-    # Laden, aendern, speichern in einem Zug: bei zwei Anfragen zugleich
-    # ginge sonst eine Aenderung verloren.
-    settings_lock = threading.Lock()
-
     @app.route('/interval/')
     def set_interval():
         """Messintervall umstellen und fuer den naechsten Start merken.
         Der Recorder liest es bei jedem Tick, es wirkt also sofort."""
         seconds = _int_query('seconds', None)
-        if seconds not in config.RECORD_INT_CHOICES:
+        choices = (config.STATIONARY_RECORD_INT_CHOICES if state.stationary
+                   else config.RECORD_INT_CHOICES)
+        if seconds not in choices:
             return {'value': u'Ungültiges Messintervall.', 'refused': True,
                     'interval': state.record_interval()}
-        with settings_lock:
-            state.set_record_interval(seconds)
-            stored = settings.load()
-            stored['record_interval'] = seconds
-            saved = settings.save(stored)
+        saved = _store_interval(seconds)
         write_log(1, u'Messintervall: {0} s'.format(seconds))
         label = _interval_label(seconds)
         if not saved:
@@ -536,7 +552,7 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         return {'now': now, 'interval': state.record_interval(),
                 'rev': state.history_rev(), 'points': points}
 
-    def _chart_message(points):
+    def _chart_message(points, raw=False):
         """Text fuer ein leeres Diagramm; None = chart.py waehlt selbst
         ("Keine Messwerte in diesem Zeitraum" bzw. "Noch keine Messwerte").
         chart.py zeigt ihn nur, wenn im Zeitraum kein Punkt liegt.
@@ -547,6 +563,8 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         dagegen richtig, Server und Browser laufen auf demselben Geraet."""
         if not state.is_connected():
             return u'Kein Sensor verbunden'
+        if raw and not points:
+            return u'Warte auf Rohwerte'
         if points:
             return None
         due = state.next_point_at()
@@ -564,15 +582,17 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         range_s = _int_query('range', 3600)
         if range_s not in CHART_RANGES:
             range_s = 3600
+        series = _query('series', u'mean')
+        raw = series == u'raw'
         width = _clamp(_int_query('w', 640), 240, 1600)
         height = _clamp(_int_query('h', 320), 140, 900)
         now = time.time()
         # Der ganze Verlauf: den Zeitraum schneidet chart.py selbst zu und
         # unterscheidet so "nichts im Zeitraum" von "noch gar nichts".
-        points = state.history()
+        points = state.raw_history() if raw else state.history()
         svg = chart.render_svg(points, now, range_s=range_s, width=width,
                                height=height, interval=state.record_interval(),
-                               message=_chart_message(points))
+                               message=_chart_message(points, raw=raw))
         response.content_type = 'image/svg+xml; charset=utf-8'
         response.set_header('Cache-Control', 'no-store')
         return svg.encode('utf-8')
@@ -615,12 +635,15 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
             'simulated': config.is_simulation(snap['device']),
             'interval': snap['record_interval'],
             'intervals': list(config.RECORD_INT_CHOICES),
+            'stationary_intervals': list(config.STATIONARY_RECORD_INT_CHOICES),
             'measurement_age': _int_or_none(age),
+            'measurement_usable': snap['measurement_usable'],
             # Einstufung nur fuer einen frischen Wert; ein alter bliebe
             # nach einem Abbruch sonst gruen stehen.
             'pm_25_level': kml.level(snap['pm_25'], 'pm_25') if fresh else 'none',
             'pm_10_level': kml.level(snap['pm_10'], 'pm_10') if fresh else 'none',
             'history_rev': snap['history_rev'],
+            'raw_history_rev': snap['raw_history_rev'],
             'next_point_in': _seconds_until(snap['next_point_at'], now),
             'session': _session_view(snap['session'], now),
             'upload': _upload_view(snap['upload_info'], now),

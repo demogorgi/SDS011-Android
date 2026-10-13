@@ -124,19 +124,19 @@ class BrowserTest(unittest.TestCase):
         self.assertNotEqual(layout['dark']['pm25'], layout['light']['pm25'])
 
     # -- Statusabfrage ------------------------------------------------
-    def test_status_polled_every_two_seconds(self):
-        """Fest alle 2 s; die alte Auswahl "Aktualisierung" ist weg."""
+    def test_status_polled_every_second(self):
+        """Fest jede Sekunde; die alte Auswahl "Aktualisierung" ist weg."""
         hits = self._phase('polling')['status_hits_in_6s']
-        self.assertGreaterEqual(hits, 2, 'Abfrage laeuft gar nicht: %d' % hits)
-        self.assertLessEqual(hits, 5, 'zu viele Abfragen: %d in 6 s' % hits)
+        self.assertGreaterEqual(hits, 5, 'Abfrage laeuft zu selten: %d' % hits)
+        self.assertLessEqual(hits, 8, 'zu viele Abfragen: %d in 6 s' % hits)
 
     def test_commands_do_not_stack_polling(self):
         """Frueher startete jede Umstellung eine weitere Timer-Kette --
         dauerhaft, auf einem Geraet mit Akku. Nach allen Befehlen muss
         es bei einer Kette bleiben."""
         hits = self._phase('polling_after')['status_hits_after_in_6s']
-        self.assertGreaterEqual(hits, 2)
-        self.assertLessEqual(hits, 5, 'Timer-Ketten stapeln sich: %d in 6 s' % hits)
+        self.assertGreaterEqual(hits, 5)
+        self.assertLessEqual(hits, 8, 'Timer-Ketten stapeln sich: %d in 6 s' % hits)
 
     # -- Sensorverbindung ---------------------------------------------
     def test_device_list_is_offered(self):

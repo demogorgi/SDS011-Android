@@ -21,6 +21,21 @@ class SampleTotalsTest(unittest.TestCase):
         state.set_measurement(2.0, 20.0)
         self.assertEqual(state.sample_totals(), (2, 3.0, 30.0))
 
+    def test_unusable_measurements_are_only_raw(self):
+        state = AppState()
+        state.set_measurement(1.0, 10.0, at=100, epoch=1000, usable=False)
+        self.assertEqual(state.measurement(), (1.0, 10.0))
+        self.assertEqual(state.sample_totals(), (0, 0.0, 0.0))
+        self.assertEqual(state.usable_measurement_age(now=110), None)
+        self.assertFalse(state.snapshot()['measurement_usable'])
+        self.assertEqual(state.raw_history(), [(1000.0, 1.0, 10.0, 1.0, False)])
+
+        state.set_measurement(2.0, 20.0, at=120, epoch=1020, usable=True)
+        self.assertEqual(state.usable_measurement(), (2.0, 20.0))
+        self.assertEqual(state.usable_measurement_age(now=125), 5)
+        self.assertEqual(state.sample_totals(), (1, 2.0, 20.0))
+        self.assertTrue(state.snapshot()['measurement_usable'])
+
     def test_windows_do_not_disturb_each_other(self):
         """Aufzeichnung und Upload mitteln ueber verschiedene Fenster."""
         state = AppState()
@@ -113,6 +128,31 @@ class HistoryTest(unittest.TestCase):
         state.add_history_point(1, 1.0, 1.0, 5, False)
         state.history().append('fremd')
         self.assertEqual(len(state.history()), 1)
+
+
+class RawHistoryTest(unittest.TestCase):
+
+    def test_measurements_are_kept_as_raw_points(self):
+        state = AppState(raw_history_size=3)
+        state.set_measurement(1.0, 10.0, epoch=100)
+        state.set_measurement(2.0, 20.0, epoch=101)
+        self.assertEqual(state.raw_history(), [(100.0, 1.0, 10.0, 1.0, False),
+                                               (101.0, 2.0, 20.0, 1.0, False)])
+        self.assertEqual(state.raw_history_rev(), 2)
+        self.assertEqual(state.snapshot()['raw_history_rev'], 2)
+
+    def test_oldest_raw_points_drop_out(self):
+        state = AppState(raw_history_size=2)
+        for epoch in range(4):
+            state.set_measurement(1.0, 2.0, epoch=epoch)
+        self.assertEqual([p[0] for p in state.raw_history()], [2.0, 3.0])
+        self.assertEqual(state.raw_history_rev(), 4)
+
+    def test_raw_since(self):
+        state = AppState()
+        for epoch in (100, 200, 300):
+            state.set_measurement(1.0, 2.0, epoch=epoch)
+        self.assertEqual([p[0] for p in state.raw_history(since=200)], [200.0, 300.0])
 
 
 class SessionAndUploadTest(unittest.TestCase):

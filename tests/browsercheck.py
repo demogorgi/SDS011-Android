@@ -355,6 +355,11 @@ async def collect():
 
         with Phase(result, 'local'):
             await page.click('#modeLocal')
+            server_get('/interval/?seconds=5')
+            await page.wait_for_function(
+                "document.querySelector('#intervalSelect [data-seconds=\"5\"]')"
+                ".getAttribute('aria-pressed') === 'true'",
+                timeout=8000)
             local = result['local'] = {
                 'place_visible': await visible(page, '#placeField'),
                 'warn_visible': await visible(page, '#statWarn'),

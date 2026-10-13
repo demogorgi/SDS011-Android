@@ -99,7 +99,8 @@ def main():
         write_log(1, u'Offene KML-Datei abgeschlossen: {0}'.format(to_text(name)))
 
     state = AppState(record_interval=config.RECORD_INT,
-                     history_size=config.HISTORY_SIZE)
+                     history_size=config.HISTORY_SIZE,
+                     raw_history_size=config.RAW_HISTORY_SIZE)
     apply_settings(state, settings.load())
 
     droid = None

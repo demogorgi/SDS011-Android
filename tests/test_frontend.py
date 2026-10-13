@@ -29,7 +29,7 @@ STYLE = os.path.join(config.STATICDIR, 'app.css')
 REQUIRED_IDS = (
     'connectBtn', 'disconnectBtn', 'deviceSelect', 'connStatus',
     'errorBanner', 'pm25Value', 'pm10Value', 'pm25Level', 'pm10Level',
-    'liveAge', 'gpsStatus', 'gpsCoords', 'chart', 'rangeSelect',
+    'liveAge', 'gpsStatus', 'gpsCoords', 'chart', 'chartSeriesSelect', 'rangeSelect',
     'intervalSelect', 'modeTrip', 'modeLocal', 'modeStat',
     'tripDetails', 'tripNameInput', 'placeInput',
     'startBtn', 'stopBtn', 'sessionPanel', 'sessionElapsed',
@@ -378,9 +378,9 @@ class ScriptTest(SearchMixin, unittest.TestCase):
         self.assertNotIn('127.0.0.1', self.code)
 
     def test_status_poll_is_fixed_and_single(self):
-        """Statusabfrage fest alle 2 s ueber eine einzige setTimeout-Kette.
+        """Statusabfrage fest jede Sekunde ueber eine einzige setTimeout-Kette.
         Frueher startete jede Aenderung der Rate eine weitere Kette."""
-        self.assert_search(self.code, r'POLL_MS\s*=\s*2000')
+        self.assert_search(self.code, r'POLL_MS\s*=\s*1000')
         self.assertIn('clearTimeout(pollTimer)', self.code)
         self.assertNotIn('setInterval(poll', self.code)
         self.assertEqual(len(re.findall(r'\bsetInterval\(', self.code)), 1,
@@ -392,9 +392,12 @@ class ScriptTest(SearchMixin, unittest.TestCase):
                       'gps_max_age', 'pm_10', 'pm_25', 'error_msg', 'recording',
                       'local', 'stationary', 'place', 'connection',
                       'connection_error', 'connection_wanted', 'device',
-                      'device_name', 'interval', 'intervals', 'measurement_age',
-                      'pm_25_level', 'history_rev', 'next_point_in', 'session',
-                      'upload', 'outdir', 'stat_interval',
+                      'device_name', 'interval', 'intervals',
+                      'stationary_intervals', 'measurement_age',
+                      'measurement_usable', 'pm_25_level',
+                      'history_rev', 'raw_history_rev',
+                      'next_point_in', 'session',
+                      'upload', 'outdir',
                       'stationary_position_ok', 'stationary_distance_m',
                       'stationary_max_distance_m'):
             pattern = r"(data|last|status)\.%s\b|'%s'" % (field, field)
@@ -437,7 +440,8 @@ class ScriptTest(SearchMixin, unittest.TestCase):
                           self.code, re.S)
         self.assertIsNotNone(match, 'Schluessel in updateChart nicht gefunden')
         parts = match.group(1)
-        for field in ('chart.range', 'history_rev', 'status.interval'):
+        for field in ('chart.series', 'chart.range', 'history_rev',
+                      'raw_history_rev', 'status.interval'):
             self.assertIn(field, parts)
         self.assert_search(parts, r"status\.connection\s*===\s*'verbunden'\s*\?\s*1\s*:\s*0")
 

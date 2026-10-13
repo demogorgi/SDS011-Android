@@ -5,7 +5,7 @@
  * kein fetch, keine Promises -- Anfragen per XMLHttpRequest.
  *
  * Der Server ist die Quelle der Wahrheit. Knoepfe, Modus und Anzeige
- * richten sich nach /status/ (alle 2 s), nicht nach dem letzten Klick;
+ * richten sich nach /status/ (jede Sekunde), nicht nach dem letzten Klick;
  * so stimmt alles auch nach einem Reload oder mit einem zweiten Geraet.
  * Das Diagramm zeichnet der Server als SVG (/chart.svg) aus demselben
  * Verlauf, aus dem die CSV entsteht.
@@ -17,7 +17,7 @@
   // Port des Servers (SDS011_HOST, SDS011_PORT).
   var SCRIPT_ROOT = '';
 
-  var POLL_MS = 2000;
+  var POLL_MS = 1000;
   var REQUEST_TIMEOUT_MS = 10000;
   // Spaetestens so oft neu zeichnen, damit die Zeitachse weiterlaeuft.
   var CHART_MAX_AGE_MS = 60000;
@@ -31,6 +31,8 @@
   // Rueckfall, falls der Server keine Einstufung liefert: so alt darf
   // ein Messwert sein, um als "live" zu gelten (config.MAX_MEASUREMENT_AGE).
   var LIVE_MAX_AGE = 10;
+  var POWER_SAVE_MIN_INTERVAL = 300;
+  var POWER_SAVE_SLEEP_SLACK = 30;
 
   // Die drei Modi und ihre bestehenden Routen.
   // card: die Moduskarte (label mit Radio) im Template.
@@ -51,6 +53,7 @@
   var LEVEL_LIMITS = {pm_25: [25, 50], pm_10: [40, 50]};
 
   var STORE_RANGE = 'feinstaub.range';
+  var STORE_CHART_SERIES = 'feinstaub.chart_series';
   var STORE_MODE = 'feinstaub.mode';
   var STORE_PLACE = 'feinstaub.place';
   var STORE_TRIP_NAME = 'feinstaub.trip_name';
@@ -78,10 +81,12 @@
   // Ob die Moduswahl schon feststeht (gemerkt, angeklickt oder laufend).
   // Sonst wird nach dem Laden der Modus der letzten Messung vorgewaehlt.
   var modeSettled = false;
+  var stationaryIntervalPending = false;
   var toastTimer = null;
   var resizeTimer = null;
   var chart = {
     range: DEFAULT_RANGE,
+    series: 'mean',
     key: null,                 // Parameter des angezeigten Bilds
     loadedAt: 0,
     failedAt: 0,
@@ -635,6 +640,9 @@
   // -- Messintervall ---------------------------------------------------
   function buildIntervalButtons(group, choices) {
     var i, button;
+    while (group.firstChild) {
+      group.removeChild(group.firstChild);
+    }
     for (i = 0; i < choices.length; i++) {
       button = document.createElement('button');
       button.type = 'button';
@@ -645,13 +653,74 @@
     }
   }
 
+  function listContains(list, value) {
+    var i;
+    for (i = 0; list && i < list.length; i++) {
+      if (list[i] === value) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function sameIntervalButtons(buttons, choices) {
+    var i;
+    if (buttons.length !== choices.length) {
+      return false;
+    }
+    for (i = 0; i < choices.length; i++) {
+      if (parseInt(buttons[i].getAttribute('data-seconds'), 10) !== choices[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function stationaryIntervalMode(data) {
+    return selectedMode() === 'stat' || activeMode(data) === 'stat';
+  }
+
+  function intervalChoices(data) {
+    if (stationaryIntervalMode(data) && data.stationary_intervals
+        && data.stationary_intervals.length) {
+      return data.stationary_intervals;
+    }
+    return data.intervals || [];
+  }
+
+  function ensureStationaryInterval(data, choices) {
+    if (!stationaryIntervalMode(data) || !choices.length
+        || listContains(choices, data.interval) || stationaryIntervalPending) {
+      return;
+    }
+    stationaryIntervalPending = true;
+    request('/interval/?seconds=' + encodeURIComponent(choices[0]),
+            function () {
+              stationaryIntervalPending = false;
+              poll();
+            }, function () {
+              stationaryIntervalPending = false;
+              toast('Messintervall konnte nicht gesetzt werden.', 'error');
+            });
+  }
+
+  function updateChartCaption(interval) {
+    var text;
+    if (chart.series === 'raw') {
+      text = 'Rohwerte vom Sensor';
+    } else {
+      text = isNumber(interval) ? 'Mittelwerte je ' + fmtInterval(interval) : 'Mittelwerte';
+    }
+    setText(byId('chartCaption'), text);
+  }
+
   function applyInterval(data) {
     var group = byId('intervalSelect');
     var buttons = group.getElementsByTagName('button');
-    // Das Template liefert die Knoepfe normalerweise mit; sonst aus
-    // /status/ nachbauen.
-    if (!buttons.length && data.intervals && data.intervals.length) {
-      buildIntervalButtons(group, data.intervals);
+    var choices = intervalChoices(data);
+    if (!sameIntervalButtons(buttons, choices)) {
+      buildIntervalButtons(group, choices);
+      buttons = group.getElementsByTagName('button');
     }
     var current = data.interval;
     var i;
@@ -661,8 +730,8 @@
       setClass(buttons[i], 'is-busy', false);
     }
     show(byId('intervalField'), buttons.length > 0 && isNumber(current));
-    setText(byId('chartCaption'),
-            isNumber(current) ? 'Mittelwerte je ' + fmtInterval(current) : 'Mittelwerte');
+    updateChartCaption(current);
+    ensureStationaryInterval(data, choices);
   }
 
   function onIntervalClick(event) {
@@ -876,6 +945,28 @@
     return session && session.active ? session : null;
   }
 
+  function sensorActivityText(data) {
+    var age = data.measurement_age;
+    if (data.connection !== 'verbunden') {
+      return 'Sensor getrennt';
+    }
+    if (!isNumber(age)) {
+      return 'wartet auf ersten Messwert';
+    }
+    if (isNumber(data.interval) && data.interval >= POWER_SAVE_MIN_INTERVAL
+        && data.measurement_usable === false && age <= LIVE_MAX_AGE) {
+      return 'Sensor stabilisiert';
+    }
+    if (age <= LIVE_MAX_AGE) {
+      return 'Sensor wach';
+    }
+    if (isNumber(data.interval) && data.interval >= POWER_SAVE_MIN_INTERVAL
+        && age <= data.interval + POWER_SAVE_SLEEP_SLACK) {
+      return 'Sensor schläft';
+    }
+    return 'kein aktueller Sensorwert';
+  }
+
   function applySession(data) {
     var active = activeMode(data);
     var session = data.session || null;
@@ -885,7 +976,8 @@
       var running = runningSession(data);
       var place = (active === 'local' || active === 'trip') && data.place
         ? ' · ' + data.place : '';
-      setText(byId('sessionMode'), MODES[active].name + ' läuft' + place);
+      setText(byId('sessionMode'), MODES[active].name + ' aktiv' + place
+              + ' · ' + sensorActivityText(data));
       setText(byId('sessionPoints'), running && isNumber(running.points) ? running.points : '–');
       setText(byId('sessionAvg25'), running ? fmtValue(running.avg_pm25) : '–');
       setText(byId('sessionAvg10'), running ? fmtValue(running.avg_pm10) : '–');
@@ -922,11 +1014,15 @@
       state = upload.last_ok ? 'ok' : 'fail';
       text = 'Letzter Upload ' + fmtTime(upload.last_at) + ' · '
         + (upload.last_ok ? 'erfolgreich' : 'fehlgeschlagen');
+      if (upload.last_ok && isNumber(upload.last_pm25) && isNumber(upload.last_pm10)) {
+        text += ': PM2.5 ' + fmtValue(upload.last_pm25)
+          + ' · PM10 ' + fmtValue(upload.last_pm10) + ' µg/m³';
+      }
       if (!upload.last_ok && upload.last_message) {
         text += ': ' + upload.last_message;
       }
     } else if (!isNumber(data && data.measurement_age)) {
-      text = 'Upload wartet auf ersten Messwert';
+      text = 'Upload wartet auf ersten Mittelwert';
     }
     setAttr(box, 'data-state', state);
     setText(byId('uploadLast'), text);
@@ -952,7 +1048,7 @@
     var clock = fmtClock(isNumber(base) ? base + since : 0);
     setText(byId('sessionElapsed'), clock);
     setText(byId('headModeText'), clock);
-    setAttr(head, 'aria-label', MODES[active].name + ' läuft seit ' + clock);
+    setAttr(head, 'aria-label', MODES[active].name + ' aktiv seit ' + clock);
     setAttr(head, 'title', MODES[active].name);
 
     // Bis 99 s in Sekunden, darueber mm:ss (Intervalle bis 15 min)
@@ -963,11 +1059,12 @@
 
     if (active === 'stat') {
       var upload = last.upload;
-      var hasUpload = upload && upload.last_at;
-      var nextUpload = hasUpload && isNumber(upload.next_in) ? upload.next_in - since : null;
+      var nextUpload = isNumber(last.next_point_in)
+        ? last.next_point_in - since
+        : (upload && isNumber(upload.next_in) ? upload.next_in - since : null);
       setText(byId('uploadNext'), nextUpload === null ? ''
-              : nextUpload <= 0 ? 'Nächster Upload gleich'
-              : 'Nächster Upload in ' + fmtCountdown(nextUpload));
+              : nextUpload <= 0 ? 'Upload mit nächstem Mittelwert gleich'
+              : 'Upload mit nächstem Mittelwert in ' + fmtCountdown(nextUpload));
     }
   }
 
@@ -979,14 +1076,6 @@
     setAttr(byId('measureTitle'), 'title', data.value || '');
     if (data.outdir) {
       setText(byId('outdirText'), data.outdir);
-    }
-    if (isNumber(data.stat_interval)) {
-      var every = 'alle ' + fmtInterval(data.stat_interval);
-      var nodes = document.querySelectorAll('.js-stat-every');
-      var i;
-      for (i = 0; i < nodes.length; i++) {
-        setText(nodes[i], every);
-      }
     }
   }
 
@@ -1011,7 +1100,9 @@
       return;
     }
     var status = last || {};
-    var key = [chart.range, size.w, size.h, status.history_rev, status.interval,
+    var key = [chart.series, chart.range, size.w, size.h,
+               chart.series === 'raw' ? status.raw_history_rev : status.history_rev,
+               status.interval,
                status.connection === 'verbunden' ? 1 : 0].join('|');
     var now = Date.now();
     if (!force) {
@@ -1032,7 +1123,8 @@
     if (!chart.shown) {
       placeholder('Diagramm wird geladen …', size.h);
     }
-    request('/chart.svg?range=' + chart.range + '&w=' + size.w + '&h=' + size.h,
+    request('/chart.svg?range=' + chart.range + '&w=' + size.w + '&h=' + size.h
+            + '&series=' + encodeURIComponent(chart.series),
             function (text) {
               chart.busy = false;
               chart.key = key;
@@ -1086,6 +1178,31 @@
       setAttr(buttons[i], 'aria-pressed',
               parseInt(buttons[i].getAttribute('data-range'), 10) === range ? 'true' : 'false');
     }
+  }
+
+  function setChartSeries(series) {
+    chart.series = series === 'raw' ? 'raw' : 'mean';
+    var buttons = byId('chartSeriesSelect').getElementsByTagName('button');
+    var i;
+    for (i = 0; i < buttons.length; i++) {
+      setAttr(buttons[i], 'aria-pressed',
+              buttons[i].getAttribute('data-series') === chart.series ? 'true' : 'false');
+    }
+    updateChartCaption(last && last.interval);
+  }
+
+  function onChartSeriesClick(event) {
+    var button = buttonFrom(event.target, byId('chartSeriesSelect'));
+    if (!button) {
+      return;
+    }
+    var series = button.getAttribute('data-series');
+    if (series === chart.series) {
+      return;
+    }
+    setChartSeries(series);
+    storageSet(STORE_CHART_SERIES, chart.series);
+    updateChart(true);
   }
 
   function onRangeClick(event) {
@@ -1201,6 +1318,7 @@
     applyTheme(storageGet(STORE_THEME));
     var range = parseInt(storageGet(STORE_RANGE), 10);
     setRange(RANGES.indexOf(range) >= 0 ? range : DEFAULT_RANGE);
+    setChartSeries(storageGet(STORE_CHART_SERIES));
 
     var mode = storageGet(STORE_MODE);
     if (mode && MODES.hasOwnProperty(mode)) {
@@ -1245,6 +1363,7 @@
         // Startknopf und Hinweis haengen am gewaehlten Modus (stationaer
         // ist mit simuliertem Sensor gesperrt).
         if (last) {
+          applyInterval(last);
           applyModes(last);
         }
       });
@@ -1265,6 +1384,7 @@
     });
 
     byId('intervalSelect').addEventListener('click', onIntervalClick);
+    byId('chartSeriesSelect').addEventListener('click', onChartSeriesClick);
     byId('rangeSelect').addEventListener('click', onRangeClick);
 
     window.addEventListener('resize', function () {

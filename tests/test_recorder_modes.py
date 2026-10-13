@@ -122,6 +122,25 @@ class StaleMeasurementTest(RecorderTestCase):
         time.sleep(0.4)
         self.assertEqual(_csv_rows(self.tmp), [])
 
+    def test_settling_value_is_not_recorded_or_uploaded(self):
+        """Rohwerte aus der Einschwingzeit bleiben sichtbar, zaehlen aber
+        nicht fuer CSV oder Upload."""
+        self.state = AppState()
+        self.state.set_position(51.4385, 6.7882)
+        self.state.set_measurement(5.0, 8.0, usable=False)
+        rec = Recorder(self.state, outdir=self.tmp, max_age=10)
+        rec._open_files(recorder_module.MODE_LOCAL)
+        rec._record_step()
+        self.assertEqual(_csv_rows(self.tmp), [])
+
+        rec = Recorder(self.state, outdir=self.tmp, max_age=10)
+        self.assertFalse(rec._push_step())
+        self.assertEqual(self.posts, [])
+
+        self.state.set_measurement(10.0, 20.0, usable=True)
+        self.assertTrue(rec._push_step())
+        self.assertEqual(len(self.posts), 1)
+
     def test_track_restarts_after_a_gap(self):
         """Nach einem Ausfall keine gerade Linie ueber die ganze Luecke."""
         rec = Recorder(self.state, outdir=self.tmp, max_age=10)
@@ -273,8 +292,8 @@ class ModeSwitchTest(RecorderTestCase):
                         'Messfahrt hat nach 2 s noch nichts geschrieben')
 
     def test_stationary_retries_soon_without_value(self):
-        """Ohne aktuellen Wert nicht STAT_INT warten, sondern bald neu
-        versuchen -- sonst kommt der erste Upload erst nach 4 Minuten."""
+        """Ohne aktuellen Wert wartet stationaer nur bis zum naechsten
+        Messpunkt, nicht auf einen separaten Upload-Timer."""
         self.state.set_measurement(1.0, 2.0, at=monotonic() - 100)
         self.start(stat_interval=60, max_age=10)
         self.state.stationary = True
@@ -302,8 +321,8 @@ class ModeSwitchTest(RecorderTestCase):
         self.assertTrue(_wait_for(done), os.listdir(self.tmp))
 
     def test_toggling_stationary_does_not_upload_more_often(self):
-        """Aus- und wieder einschalten darf den Upload-Abstand nicht
-        unterlaufen -- sonst geht bei jedem Klick ein Wert raus."""
+        """Aus- und wieder einschalten darf keinen Sofort-Upload ausloesen;
+        gesendet wird erst mit einem neuen Messpunkt."""
         self.start(stat_interval=60)
         self.state.stationary = True
         self.assertTrue(_wait_for(lambda: self.posts))
@@ -800,10 +819,14 @@ class StationaryRecordingTest(RecorderTestCase):
         self.start(record_interval=0.1, stat_interval=60)
         self.state.stationary = True
         self.assertTrue(_wait_for(lambda: (self.state.upload_info() or {}).get('last_at')))
+        self.assertTrue(_wait_for(lambda: (self.state.upload_info() or {}).get('next_at', 0)
+                                  > time.time()))
         info = self.state.upload_info()
         self.assertTrue(info['last_ok'])
         self.assertIn(u'übertragen', info['last_message'])
-        self.assertAlmostEqual(info['next_at'] - time.time(), 60, delta=2)
+        self.assertAlmostEqual(info['last_pm25'], 12.3)
+        self.assertAlmostEqual(info['last_pm10'], 45.6)
+        self.assertAlmostEqual(info['next_at'] - time.time(), 0.1, delta=0.5)
         # Nach dem Ausschalten ist kein Upload mehr geplant.
         self.state.stationary = False
         self.assertTrue(_wait_for(lambda: self.state.upload_info()['next_at'] is None))

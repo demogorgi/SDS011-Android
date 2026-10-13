@@ -170,6 +170,10 @@
   <section class="card" aria-labelledby="chartTitle">
     <div class="card-head card-head-wrap">
       <h2 class="card-title" id="chartTitle">Verlauf</h2>
+      <div class="seg seg-fit" id="chartSeriesSelect" role="group" aria-label="Datenreihe">
+        <button type="button" data-series="mean" aria-pressed="true">Mittelwerte</button>
+        <button type="button" data-series="raw" aria-pressed="false">Rohwerte</button>
+      </div>
       <div class="seg seg-fit" id="rangeSelect" role="group" aria-label="Zeitraum">
         <button type="button" data-range="600" aria-pressed="false">10 min</button>
         <button type="button" data-range="3600" aria-pressed="false">1 h</button>
@@ -269,7 +273,7 @@
             </span>
             <span class="mode-text">
               <span class="mode-title">Stationär <span class="badge">öffentlich</span></span>
-              <span class="mode-desc">Upload zu sensor.community <span class="js-stat-every">alle paar Minuten</span>, dazu CSV</span>
+              <span class="mode-desc">Upload zu sensor.community mit jedem neuen Mittelwert, dazu CSV</span>
             </span>
             <span class="mode-radio" aria-hidden="true"></span>
           </span>
@@ -277,8 +281,8 @@
         <div class="note note-warn mode-detail" id="statWarn" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9L1.8 18.5a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.5M12 17.5v.01"/></svg>
           <div>
-          <p><strong>Öffentlicher Upload.</strong> Die Werte gehen <span class="js-stat-every">alle paar Minuten</span>
-            an sensor.community (luftdaten.info) und erscheinen dort unter der Sensor-ID
+          <p><strong>Öffentlicher Upload.</strong> Jeder neue Mittelwert geht
+            an sensor.community (luftdaten.info) und erscheint dort unter der Sensor-ID
             <b class="mono">{{xsensor}}</b>. Nur am vereinbarten Standort starten.</p>
             <p class="help">Mit aktuellem GPS-Fix startet dieser Modus nur nahe am konfigurierten Sensorstandort.</p>
             <a class="ext-link" href="{{links['karte']}}" data-link="karte" target="_blank" rel="noopener">Sensor auf der Karte ansehen<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
@@ -290,7 +294,7 @@
     <div class="run" id="sessionPanel" hidden>
       <div class="run-head">
         <span class="rec-dot" aria-hidden="true"></span>
-        <span id="sessionMode">Messung läuft</span>
+        <span id="sessionMode">Messung aktiv</span>
       </div>
       <div class="run-elapsed tnum" id="sessionElapsed" aria-label="Laufzeit">00:00:00</div>
       <div class="stats">
@@ -299,7 +303,7 @@
           <div class="stat-value tnum" id="sessionPoints">0</div>
         </div></div>
         <div class="stat"><div class="stat-in">
-          <div class="stat-label">Nächster Punkt</div>
+          <div class="stat-label">Nächster Mittelwert</div>
           <div class="stat-value tnum" id="nextPoint">–</div>
         </div></div>
         <div class="stat"><div class="stat-in">

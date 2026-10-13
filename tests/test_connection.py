@@ -6,6 +6,7 @@ from __future__ import absolute_import
 import time
 import unittest
 
+import config
 import protocol
 import state as state_module
 from connection import Backoff
@@ -92,6 +93,10 @@ class FakeTransportConnectionTest(unittest.TestCase):
         fake.write(protocol.build_work_period_command(5))
         self.assertEqual(fake.work_period_minutes, 5)
         self.assertEqual(fake.writes[-1][4], 5)
+        fake.write(protocol.build_sleep_command(True))
+        self.assertTrue(fake.sleeping)
+        fake.write(protocol.build_sleep_command(False))
+        self.assertFalse(fake.sleeping)
 
 
 class CountingBackoff(Backoff):
@@ -309,25 +314,55 @@ class SupervisorTest(unittest.TestCase):
         state.shutdown()
         reader.join(3)
 
-    def test_long_interval_sets_five_minute_working_period(self):
+    def test_long_interval_uses_manual_sleep_cycle(self):
+        saved_min_interval = config.SDS011_POWER_SAVE_MIN_INTERVAL
+        saved_settle = config.SDS011_POWER_SAVE_SETTLE
+        saved_sample_window = config.SDS011_POWER_SAVE_SAMPLE_WINDOW
+        config.SDS011_POWER_SAVE_MIN_INTERVAL = 0.05
+        config.SDS011_POWER_SAVE_SETTLE = 0.02
+        config.SDS011_POWER_SAVE_SAMPLE_WINDOW = 0.03
+        self.addCleanup(setattr, config, 'SDS011_POWER_SAVE_MIN_INTERVAL',
+                        saved_min_interval)
+        self.addCleanup(setattr, config, 'SDS011_POWER_SAVE_SETTLE', saved_settle)
+        self.addCleanup(setattr, config, 'SDS011_POWER_SAVE_SAMPLE_WINDOW',
+                        saved_sample_window)
         fake = FakeTransport(interval=0.01)
-        state = AppState(record_interval=300)
+        state = AppState(record_interval=0.09)
         reader = SensorReader(state, fake, idle_wait=0.01,
                               backoff=Backoff(start=0.02, maximum=0.1))
         reader.start()
         state.connection_wanted = True
         self.assertTrue(self._wait_for(lambda: state.is_connected()))
-        self.assertEqual(fake.writes[0][4], 0)
-        self.assertTrue(self._wait_for(lambda: fake.work_period_minutes == 5))
-        self.assertEqual(fake.writes[-1][4], 5)
+        self.assertEqual(fake.work_period_minutes, 0)
+        self.assertFalse(fake.sleeping)
+        self.assertTrue(self._wait_for(lambda: reader.frames_seen >= 2))
+        self.assertTrue(self._wait_for(lambda: fake.sleeping))
+        frames_at_sleep = reader.frames_seen
+        usable_at_sleep = state.sample_totals()[0]
+        self.assertGreater(usable_at_sleep, 0)
+        self.assertLess(usable_at_sleep, frames_at_sleep)
+        self.assertTrue(self._wait_for(lambda: not fake.sleeping))
+        self.assertTrue(self._wait_for(lambda: reader.frames_seen > frames_at_sleep))
+        sleep_values = [data[4] for data in fake.writes
+                        if len(data) == protocol.COMMAND_FRAME_LEN
+                        and data[2] == protocol.CMD_SLEEP]
+        self.assertIn(0, sleep_values)
+        self.assertIn(1, sleep_values)
 
-        state.set_record_interval(60)
-        self.assertTrue(self._wait_for(lambda: fake.work_period_minutes == 0))
+        state.set_record_interval(0.01)
+        self.assertTrue(self._wait_for(lambda: not fake.sleeping))
         state.connection_wanted = False
         self.assertTrue(self._wait_for(lambda: not fake.is_connected()))
-        self.assertEqual(fake.writes[-1][4], 0)
+        self.assertFalse(fake.sleeping)
         state.shutdown()
         reader.join(3)
+
+    def test_power_save_cycle_follows_record_interval(self):
+        state = AppState(record_interval=900)
+        reader = SensorReader(state, FakeTransport())
+        self.assertEqual(reader._cycle_seconds(), 900)
+        state.set_record_interval(300)
+        self.assertEqual(reader._cycle_seconds(), 300)
 
     def test_one_second_interval_keeps_continuous_mode(self):
         fake = FakeTransport(interval=0.01)
@@ -338,11 +373,11 @@ class SupervisorTest(unittest.TestCase):
         state.connection_wanted = True
         self.assertTrue(self._wait_for(lambda: state.is_connected()))
         self.assertEqual(fake.work_period_minutes, 0)
-        self.assertEqual(fake.writes[-1][4], 0)
+        self.assertFalse(fake.sleeping)
         state.shutdown()
         reader.stop()
         reader.join(3)
-        self.assertEqual(fake.writes[-1][4], 0)
+        self.assertFalse(fake.sleeping)
 
     def test_power_save_extends_silence_timeout(self):
         fake = FakeTransport(interval=0.01)
@@ -350,7 +385,9 @@ class SupervisorTest(unittest.TestCase):
         reader = SensorReader(state, fake, idle_wait=0.01, silence_timeout=15,
                               backoff=Backoff(start=0.02, maximum=0.1))
         self.assertEqual(reader._silence_limit(), 15)
-        reader._frames_since_connect = 1
+        reader._sleeping = False
+        self.assertEqual(reader._silence_limit(), 15)
+        reader._sleeping = True
         self.assertEqual(reader._silence_limit(), 330)
 
 

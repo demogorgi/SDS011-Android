@@ -28,9 +28,16 @@ LOG_LEVEL = 1
 RECORD_INT = 5
 # Messintervalle in Sekunden, die die Oberflaeche zur Wahl stellt.
 RECORD_INT_CHOICES = (1, 5, 10, 30, 60, 300, 900)
+# Im stationaeren Modus mit oeffentlichem Upload soll jeder Upload zu
+# genau einem neuen Messpunkt gehoeren. Deshalb sind dort nur die langen,
+# stromsparenden Auswerteintervalle waehlbar.
+STATIONARY_RECORD_INT_CHOICES = (300, 900)
 # So viele Intervall-Mittelwerte behaelt der Verlauf fuer das Diagramm:
 # 6 h bei 5 s, 3 Tage bei 1 min. Aeltere fallen heraus.
 HISTORY_SIZE = 4320
+# So viele Rohwerte behaelt die App nur im Speicher fuer den Rohwert-Plot:
+# etwa 2 h bei 1 Wert/s. Sie werden nicht in CSV/KML geschrieben.
+RAW_HISTORY_SIZE = 7200
 # Intervall in Sekunden, in dem die GPS-Position neu gelesen wird.
 GPS_INT = 5
 # Kommt so viele Sekunden keine neue Position, wird das GPS ab- und
@@ -47,9 +54,10 @@ GPS_MAX_AGE = 15
 # vom konfigurierten Sensorstandort entfernt ist. Ohne GPS/Fix (z. B. am
 # Laptop) blockiert diese Pruefung nicht.
 STATIONARY_MAX_DISTANCE_M = 500
-# Intervall in Sekunden zwischen zwei Uploads im stationaeren Modus;
-# hochgeladen wird der Mittelwert ueber diese Zeit. sensor.community
-# erwartet Werte etwa alle 2-5 min -- nicht unter 150 s setzen.
+# Historischer Upload-Abstand im stationaeren Modus. Der Recorder nutzt
+# inzwischen das Messintervall als Takt: hochgeladen wird, sobald ein
+# neuer stationaerer Mittelwert entstanden ist. Der Wert bleibt als
+# Kompatibilitaetsanker fuer alte Einstellungen und Tests erhalten.
 STAT_INT = 240
 # Hoechstalter in Sekunden eines Messwerts, der aufgezeichnet oder
 # hochgeladen wird. Der Sensor sendet etwa einmal pro Sekunde -- bleibt
@@ -58,16 +66,20 @@ MAX_MEASUREMENT_AGE = 10
 # Kommt so viele Sekunden lang kein Byte vom Sensor, gilt die Verbindung
 # als abgerissen und wird neu aufgebaut. Unter Android meldet ein
 # abgerissenes Bluetooth sonst nur "keine Daten", aber keinen Fehler.
-# Wenn der Sensor per Working Period absichtlich schlaeft, verlaengert
+# Wenn der Sensor per manuellem Sleep/Wake absichtlich schlaeft, verlaengert
 # sensor.py diese Schwelle passend zur Pausenzeit.
 SENSOR_SILENCE_TIMEOUT = 15
-# Ab diesem Auswerteintervall schaltet die App den SDS011 waehrend der
-# Messung in seinen 5-Minuten-Zyklus: etwa 30 s messen, dann schlafen.
-# Bei kuerzeren Intervallen laeuft er im Dauerbetrieb. Beim Trennen und
-# Beenden setzt die App wieder Dauerbetrieb, damit nur der Hardwareschalter
-# den Sensor wirklich ausschaltet.
+# Ab diesem Auswerteintervall steuert die App den SDS011 per manuellem
+# Sleep/Wake. Je Messintervall gibt es eine Wachphase: zuerst
+# Einschwingzeit, danach das verwertbare 1-Hz-Messfenster. Rohwerte aus
+# der Einschwingzeit bleiben im Rohwert-Plot sichtbar, werden aber nicht
+# gemittelt, gespeichert oder hochgeladen. Bei kuerzeren Intervallen
+# laeuft der Sensor im Dauerbetrieb. Beim Trennen und Beenden weckt die
+# App den Sensor und setzt die Working Period auf 0, damit nur der
+# Hardwareschalter ihn wirklich ausschaltet.
 SDS011_POWER_SAVE_MIN_INTERVAL = 300
-SDS011_POWER_SAVE_PERIOD = 5
+SDS011_POWER_SAVE_SETTLE = 15
+SDS011_POWER_SAVE_SAMPLE_WINDOW = 30
 SDS011_POWER_SAVE_SILENCE_SLACK = 30
 
 # UUID des Serial Port Profile (SPP), ueber das Android die Verbindung

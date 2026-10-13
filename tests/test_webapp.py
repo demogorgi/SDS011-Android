@@ -173,8 +173,10 @@ class RouteTest(unittest.TestCase):
                     'device', 'device_name', 'gps_available', 'gps_age',
                     'gps_max_age', 'local', 'place', 'trip_name',
                     # Fuer die Oberflaeche mit Server-Diagramm:
-                    'interval', 'intervals', 'measurement_age',
-                    'pm_25_level', 'pm_10_level', 'history_rev',
+                    'interval', 'intervals', 'stationary_intervals',
+                    'measurement_age',
+                    'measurement_usable', 'pm_25_level', 'pm_10_level',
+                    'history_rev', 'raw_history_rev',
                     'next_point_in', 'session', 'upload', 'outdir',
                     'stat_interval', 'stationary_position_ok',
                     'stationary_distance_m', 'stationary_max_distance_m'):
@@ -542,6 +544,36 @@ class IntervalRouteTest(unittest.TestCase):
         status, payload = call(self.app, '/status/')
         self.assertEqual(payload['interval'], 60)
         self.assertEqual(payload['intervals'], list(config.RECORD_INT_CHOICES))
+        self.assertEqual(payload['stationary_intervals'],
+                         list(config.STATIONARY_RECORD_INT_CHOICES))
+
+    def test_stationary_start_defaults_to_five_minutes(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_gps_available(False)
+        self.state.set_record_interval(10)
+        status, payload = call(self.app, '/staton/')
+        self.assertFalse(payload.get('refused'))
+        self.assertEqual(self.state.record_interval(), 300)
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_stationary_start_keeps_fifteen_minutes(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_gps_available(False)
+        self.state.set_record_interval(900)
+        status, payload = call(self.app, '/staton/')
+        self.assertFalse(payload.get('refused'))
+        self.assertEqual(self.state.record_interval(), 900)
+
+    def test_stationary_restricts_interval_choices(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_gps_available(False)
+        call(self.app, '/staton/')
+        status, payload = call(self.app, '/interval/?seconds=60')
+        self.assertTrue(payload.get('refused'))
+        self.assertEqual(self.state.record_interval(), 300)
+        status, payload = call(self.app, '/interval/?seconds=900')
+        self.assertFalse(payload.get('refused'))
+        self.assertEqual(self.state.record_interval(), 900)
 
 
 class HistoryRouteTest(unittest.TestCase):
@@ -682,6 +714,15 @@ class ChartRouteTest(unittest.TestCase):
         self.assertNotIn(u'Erster Mittelwert', label)
         self.assertNotIn(u'Kein Sensor verbunden', label)
 
+    def test_raw_chart_uses_raw_values(self):
+        self.state.set_connection(u'verbunden')
+        self.state.set_measurement(12.3, 45.6)
+        status, headers, body = call_raw(
+            self.app, '/chart.svg?range=3600&w=400&h=240&series=raw')
+        self.assertTrue(status.startswith('200'), status)
+        self.assertEqual(headers['content-type'], 'image/svg+xml; charset=utf-8')
+        self.assertIn(b'45,6', body)
+
 
 class StatusFieldsTest(unittest.TestCase):
     """Die Felder fuer die neue Oberflaeche."""
@@ -701,6 +742,7 @@ class StatusFieldsTest(unittest.TestCase):
         self.assertEqual(payload['pm_25_level'], 'none')
         self.assertEqual(payload['pm_10_level'], 'none')
         self.assertEqual(payload['history_rev'], 0)
+        self.assertEqual(payload['raw_history_rev'], 0)
         self.assertIsNone(payload['next_point_in'])
         self.assertIsNone(payload['session'])
         self.assertIsNone(payload['upload'])
@@ -729,9 +771,19 @@ class StatusFieldsTest(unittest.TestCase):
         self.assertEqual(payload['pm_25_level'], 'none')
         self.assertEqual(payload['pm_10_level'], 'none')
 
+    def test_settling_value_is_marked_but_still_visible(self):
+        self.state.set_record_interval(300)
+        self.state.set_connection(u'verbunden')
+        self.state.set_measurement(10.0, 20.0, usable=False)
+        payload = self.status()
+        self.assertEqual(payload['measurement_age'], 0)
+        self.assertFalse(payload['measurement_usable'])
+        self.assertEqual(payload['pm_25'].strip(), '10.0')
+        self.assertEqual(payload['pm_10'].strip(), '20.0')
+
     def test_power_save_sleep_value_keeps_level(self):
-        """Im SDS011-Working-Period-Modus ist ein aelterer Wert waehrend
-        des geplanten Sensorzyklus nicht veraltet."""
+        """Im Sleep/Wake-Modus ist ein aelterer Wert waehrend des geplanten
+        Sensorzyklus nicht veraltet."""
         from state import monotonic
         self.state.set_record_interval(300)
         self.state.set_connection(u'verbunden')
@@ -741,7 +793,7 @@ class StatusFieldsTest(unittest.TestCase):
         self.assertEqual(payload['pm_25_level'], 'good')
         self.assertEqual(payload['pm_10_level'], 'good')
 
-        too_old = config.SDS011_POWER_SAVE_PERIOD * 60 + config.SDS011_POWER_SAVE_SILENCE_SLACK + 1
+        too_old = 300 + config.SDS011_POWER_SAVE_SILENCE_SLACK + 1
         self.state.set_measurement(10.0, 20.0, at=monotonic() - too_old)
         payload = self.status()
         self.assertEqual(payload['pm_25_level'], 'none')
@@ -753,6 +805,7 @@ class StatusFieldsTest(unittest.TestCase):
         self.state.set_next_point_at(time.time() + 7.2)
         payload = self.status()
         self.assertEqual(payload['history_rev'], 1)
+        self.assertEqual(payload['raw_history_rev'], 0)
         self.assertEqual(payload['next_point_in'], 8)
         # Ein ueberfaelliger Termin wird nicht negativ.
         self.state.set_next_point_at(time.time() - 3)
@@ -784,10 +837,13 @@ class StatusFieldsTest(unittest.TestCase):
     def test_upload_with_next_in(self):
         import time
         self.state.set_upload_info({'last_at': time.time() - 10, 'last_ok': True,
-                                    'last_message': u'ok', 'next_at': time.time() + 229.5})
+                                    'last_message': u'ok', 'next_at': time.time() + 229.5,
+                                    'last_pm25': 12.345, 'last_pm10': 45.67})
         upload = self.status()['upload']
         self.assertEqual(upload['next_in'], 230)
         self.assertTrue(upload['last_ok'])
+        self.assertEqual(upload['last_pm25'], 12.3)
+        self.assertEqual(upload['last_pm10'], 45.7)
         self.state.set_upload_info({'last_at': None, 'last_ok': None,
                                     'last_message': u'', 'next_at': None})
         self.assertIsNone(self.status()['upload']['next_in'])

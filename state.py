@@ -48,11 +48,12 @@ class AppState(object):
     """Thread-sicherer Zustand der App; main.py legt genau eine Instanz an.
 
     record_interval: Messintervall in Sekunden zu Beginn. history_size:
-    so viele Punkte behaelt der Verlauf. main.py uebergibt die Werte aus
-    config.py; die Standardwerte hier gelten nur fuer Tests.
+    so viele Mittelwerte behaelt der Verlauf. raw_history_size: so viele
+    Rohwerte fuer den Plot. main.py uebergibt die Werte aus config.py; die
+    Standardwerte hier gelten nur fuer Tests.
     """
 
-    def __init__(self, record_interval=5, history_size=4320):
+    def __init__(self, record_interval=5, history_size=4320, raw_history_size=7200):
         self._lock = threading.Lock()
         # Laufzeit-Flaggen: einfache Attribute ohne Lock (bool-Zuweisungen
         # sind atomar). Dass immer nur ein Modus laeuft, stellt webapp.py
@@ -75,6 +76,11 @@ class AppState(object):
         self._pm_25 = 0.0
         # Wann der letzte Messwert kam (monotonic), None = noch keiner.
         self._pm_at = None
+        self._pm_usable = False
+        # Letzter Messwert, der fuer Mittelwerte/CSV/Upload freigegeben ist.
+        self._usable_pm_10 = 0.0
+        self._usable_pm_25 = 0.0
+        self._usable_pm_at = None
         self._lat = 0.0
         self._lon = 0.0
         self._utc = utcnow()
@@ -110,6 +116,9 @@ class AppState(object):
         # zaehlt mit, damit die Oberflaeche nur bei Neuem nachlaedt.
         self._history = collections.deque(maxlen=history_size)
         self._history_rev = 0
+        # Rohwerte nur im Speicher, fuer den umschaltbaren Plot.
+        self._raw_history = collections.deque(maxlen=raw_history_size)
+        self._raw_history_rev = 0
         # Laufende oder letzte Aufzeichnung, Stand des Uploads und der
         # naechste Punkt -- nur fuer die Anzeige, der Recorder pflegt sie.
         self._session = None
@@ -117,15 +126,29 @@ class AppState(object):
         self._next_point_at = None
 
     # -- Messwerte ----------------------------------------------------
-    def set_measurement(self, pm_25, pm_10, at=None):
-        """Neuen Messwert speichern; at (monotonic) nur fuer Tests."""
+    def set_measurement(self, pm_25, pm_10, at=None, epoch=None, usable=True):
+        """Neuen Rohwert speichern.
+
+        usable=False bedeutet: im Rohwert-Plot zeigen, aber nicht fuer
+        Mittelwerte, CSV oder Upload zaehlen (Einschwingzeit nach Wake).
+        at (monotonic) und epoch sind nur fuer Tests.
+        """
+        when = monotonic() if at is None else at
+        wall = time.time() if epoch is None else epoch
         with self._lock:
             self._pm_25 = pm_25
             self._pm_10 = pm_10
-            self._pm_at = monotonic() if at is None else at
-            self._samples_n += 1
-            self._sum_25 += pm_25
-            self._sum_10 += pm_10
+            self._pm_at = when
+            self._pm_usable = bool(usable)
+            if usable:
+                self._usable_pm_25 = pm_25
+                self._usable_pm_10 = pm_10
+                self._usable_pm_at = when
+                self._samples_n += 1
+                self._sum_25 += pm_25
+                self._sum_10 += pm_10
+            self._raw_history.append((float(wall), pm_25, pm_10, 1.0, False))
+            self._raw_history_rev += 1
 
     def sample_totals(self):
         """(Anzahl, Summe PM2.5, Summe PM10) aller Messwerte seit dem Start.
@@ -156,6 +179,20 @@ class AppState(object):
         """Letzter Messwert als (pm_25, pm_10); 0.0, solange keiner kam."""
         with self._lock:
             return (self._pm_25, self._pm_10)
+
+    def usable_measurement_age(self, now=None):
+        """Sekunden seit dem letzten verwertbaren Messwert."""
+        with self._lock:
+            pm_at = self._usable_pm_at
+        if pm_at is None:
+            return None
+        age = (monotonic() if now is None else now) - pm_at
+        return age if age >= 0 else None
+
+    def usable_measurement(self):
+        """Letzter fuer Mittelwerte freigegebener Messwert."""
+        with self._lock:
+            return (self._usable_pm_25, self._usable_pm_10)
 
     # -- Position -----------------------------------------------------
     def set_position(self, lat, lon, utc=None):
@@ -295,6 +332,18 @@ class AppState(object):
         with self._lock:
             return self._history_rev
 
+    def raw_history(self, since=None):
+        """Rohwerte als Punkte fuer den Plot; aelteste zuerst."""
+        with self._lock:
+            if since is None:
+                return list(self._raw_history)
+            return [point for point in self._raw_history if point[0] >= since]
+
+    def raw_history_rev(self):
+        """Zaehler, der mit jedem Rohwert steigt."""
+        with self._lock:
+            return self._raw_history_rev
+
     # -- Aufzeichnung, Upload, naechster Punkt -------------------------
     def set_session(self, info):
         """Laufende oder letzte Aufzeichnung als dict (siehe Recorder),
@@ -349,7 +398,9 @@ class AppState(object):
                 'device': self._device,
                 'device_name': self._device_name,
                 'record_interval': self._record_interval,
+                'measurement_usable': self._pm_usable,
                 'history_rev': self._history_rev,
+                'raw_history_rev': self._raw_history_rev,
                 'session': None if self._session is None else dict(self._session),
                 'upload_info': (None if self._upload_info is None
                                 else dict(self._upload_info)),
