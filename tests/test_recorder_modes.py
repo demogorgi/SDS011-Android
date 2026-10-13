@@ -229,6 +229,32 @@ class StaleMeasurementTest(RecorderTestCase):
                   for v in json.loads(self.posts[-1])['sensordatavalues']}
         self.assertEqual(values, {'P1': '20.0', 'P2': '10.0'})
 
+    def test_power_save_sleep_without_new_values_is_no_error(self):
+        """Ist im geplanten Schlaf seit dem letzten Upload noch kein neuer
+        Wert gekommen, wird nichts gesendet, aber auch kein Ausfall gemeldet."""
+        self.state.set_record_interval(300)
+        rec = Recorder(self.state, outdir=self.tmp, max_age=10)
+        self.assertTrue(rec._push_step())
+        self.posts[:] = []
+        self.state.set_measurement(12.3, 45.6, at=monotonic() - 100)
+        rec._push_totals = self.state.sample_totals()
+        self.assertFalse(rec._push_step())
+        self.assertEqual(self.posts, [])
+        self.assertEqual(self.state.error(), u'')
+
+    def test_stale_hint_clears_during_power_save_sleep(self):
+        """Der rote Hinweis darf im geplanten 5-min-Sensorzyklus nicht
+        stehen bleiben, waehrend der naechste Punkt erst in Minuten kommt."""
+        self.state.set_measurement(1.0, 2.0, at=monotonic() - 100)
+        self.state.set_record_interval(0.1)
+        self.recorder = Recorder(self.state, outdir=self.tmp, tick=0.02, max_age=10)
+        self.recorder.start()
+        self.state.local = True
+        self.assertTrue(_wait_for(lambda: u'Kein aktueller Messwert' in self.state.error()))
+        self.state.set_record_interval(300)
+        self.assertTrue(_wait_for(lambda: self.state.error() == u'', timeout=1.0),
+                        self.state.error())
+
 
 class ModeSwitchTest(RecorderTestCase):
 

@@ -403,6 +403,20 @@ class Recorder(threading.Thread):
         brauchbar, auch wenn der letzte Einzelwert inzwischen schlaeft."""
         return self._interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL
 
+    def _sleep_age_limit(self):
+        """So alt darf der letzte Wert waehrend geplanter Schlafphasen sein."""
+        return (config.SDS011_POWER_SAVE_PERIOD * 60
+                + config.SDS011_POWER_SAVE_SILENCE_SLACK)
+
+    def _is_expected_sleeping(self):
+        """True, wenn die Stille zum SDS011-Working-Period-Zyklus passt."""
+        age = self._state.measurement_age()
+        return (age is not None and self._accepts_sleeping_window()
+                and age > self._max_age and age <= self._sleep_age_limit())
+
+    def _has_current_or_sleeping_value(self):
+        return self._is_fresh() or self._is_expected_sleeping()
+
     def _check_fresh(self, fresh, consequence):
         """Zeigt den Hinweis "Kein aktueller Messwert" an, der die Folge
         nennt (consequence, etwa 'nichts aufgezeichnet'), oder raeumt ihn
@@ -609,6 +623,9 @@ class Recorder(threading.Thread):
             self._uploaded(False, message)
             return True
         count = totals[0] - self._push_totals[0] if self._push_totals is not None else 0
+        if count <= 0 and self._is_expected_sleeping():
+            self._clear(HINT_STALE)
+            return False
         if count <= 0 or not self._accepts_sleeping_window():
             fresh = self._is_fresh()
         else:
@@ -772,7 +789,8 @@ class Recorder(threading.Thread):
             # Messwert" gleich, nicht erst mit dem naechsten Punkt -- bei
             # 15 min Intervall stuende er sonst bis zu 15 min neben
             # frischen Live-Werten.
-            if self._hints[HINT_STALE] is not None and self._is_fresh():
+            if (self._hints[HINT_STALE] is not None
+                    and self._has_current_or_sleeping_value()):
                 self._clear(HINT_STALE)
             now = _now()
             record_at = self._window_start + self._interval()
