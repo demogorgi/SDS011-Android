@@ -46,11 +46,13 @@ class SensorReader(threading.Thread):
         self._working_period = None
         self._running = True
         self.frames_seen = 0
+        self._frames_since_connect = 0
 
     # -- Verbindung ---------------------------------------------------
     def _wanted_working_period(self):
         """SDS011 Working Period fuer das aktuelle Messintervall."""
-        if self._state.record_interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL:
+        if (self._frames_since_connect > 0
+                and self._state.record_interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL):
             return config.SDS011_POWER_SAVE_PERIOD
         return 0
 
@@ -154,6 +156,7 @@ class SensorReader(threading.Thread):
         try:
             self._transport.connect(device_id)
             self._working_period = None
+            self._frames_since_connect = 0
             self._apply_working_period()
         except TransportError as exc:
             try:
@@ -247,6 +250,7 @@ class SensorReader(threading.Thread):
 
             for reading in self._decoder.feed(chunk):
                 self.frames_seen += 1
+                self._frames_since_connect += 1
                 self._state.set_measurement(reading.pm_25, reading.pm_10)
                 write_log(3, u'pm_25={0}, pm_10={1}'.format(
                     reading.pm_25, reading.pm_10))

@@ -892,7 +892,7 @@
       setText(byId('sessionFile'), (running && running.file) || '–');
       show(byId('uploadInfo'), active === 'stat');
       if (active === 'stat') {
-        applyUpload(data.upload);
+        applyUpload(data);
       }
     }
 
@@ -913,8 +913,9 @@
     }
   }
 
-  function applyUpload(upload) {
+  function applyUpload(data) {
     var box = byId('uploadInfo');
+    var upload = data && data.upload;
     var state = 'none';
     var text = 'Noch kein Upload';
     if (upload && upload.last_at) {
@@ -924,6 +925,8 @@
       if (!upload.last_ok && upload.last_message) {
         text += ': ' + upload.last_message;
       }
+    } else if (!isNumber(data && data.measurement_age)) {
+      text = 'Upload wartet auf ersten Messwert';
     }
     setAttr(box, 'data-state', state);
     setText(byId('uploadLast'), text);
@@ -960,7 +963,8 @@
 
     if (active === 'stat') {
       var upload = last.upload;
-      var nextUpload = upload && isNumber(upload.next_in) ? upload.next_in - since : null;
+      var hasUpload = upload && upload.last_at;
+      var nextUpload = hasUpload && isNumber(upload.next_in) ? upload.next_in - since : null;
       setText(byId('uploadNext'), nextUpload === null ? ''
               : nextUpload <= 0 ? 'Nächster Upload gleich'
               : 'Nächster Upload in ' + fmtCountdown(nextUpload));

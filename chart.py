@@ -412,14 +412,14 @@ def _range_text(range_s):
 
 def _legend_items():
     # (Art, CSS-Klasse, Text)
-    return ((u'line', u'pmc-s25', u'PM2.5'), (u'line', u'pmc-s10', u'PM10'),
+    return ((u'point', u'pmc-f25', u'PM2.5'), (u'point', u'pmc-f10', u'PM10'),
             (u'rec', u'', u'gespeichert'))
 
 
 def _legend_width(items):
     width = 0.0
     for kind, _, label in items:
-        key = 16 if kind == u'line' else 12
+        key = 12
         width += key + 5 + text_width(label)
     return width + _ITEM_GAP * (len(items) - 1)
 
@@ -430,10 +430,10 @@ def _draw_legend(out, items, right, baseline):
     out.append(u'<g class="pmc-legend">')
     for kind, cls, label in items:
         mid = baseline - 3.5
-        if kind == u'line':
-            out.append(u'<path class="pmc-line {0}" d="M{1} {2}h12"/>'.format(
-                cls, _n(x + 2), _n(mid)))
-            x += 16
+        if kind == u'point':
+            out.append(u'<circle class="{0}" cx="{1}" cy="{2}" r="3"/>'.format(
+                cls, _n(x + 6), _n(mid)))
+            x += 12
         else:
             out.append(u'<rect class="pmc-rec" x="{0}" y="{1}" width="12" height="10"/>'
                        u'<rect class="pmc-rec-top" x="{0}" y="{1}" width="12" height="2"/>'
@@ -585,8 +585,6 @@ def render_svg(points, now, range_s=3600, width=640, height=320, interval=5,
     segments = []
     if has_data:
         segments = split_segments(window)
-        max_points = max(10, int(plot_w * POINTS_PER_PX))
-        segments = downsample(segments, start, span, max_points)
 
         # Gespeicherte Abschnitte als Band ueber die volle Hoehe, oben mit
         # einer kraeftigeren Kante. Baender unter 1 px Abstand verschmelzen.
@@ -687,20 +685,14 @@ def render_svg(points, now, range_s=3600, width=640, height=320, interval=5,
         ref_labels.append(u'<text class="pmc-reflabel pmc-halo" x="{0}" y="{1}">{2}</text>'
                           .format(_n(x), _n(base), escape(text)))
 
-    # Linien: PM10 zuerst, PM2.5 obendrauf. Ein Pfad je Teilstueck,
-    # Einzelpunkte als kleiner Kreis.
+    # Punkte: PM10 zuerst, PM2.5 obendrauf. Keine Verbindungslinien,
+    # damit das Diagramm keine Werte zwischen Messpunkten suggeriert.
     for index, cls, fill in ((2, u'pmc-s10', u'pmc-f10'), (1, u'pmc-s25', u'pmc-f25')):
         out.append(u'<g>')
         for segment in segments:
-            if len(segment) == 1:
-                point = segment[0]
+            for point in segment:
                 out.append(u'<circle class="{0}" cx="{1}" cy="{2}" r="2.5"/>'.format(
                     fill, _n(x_of(point[0])), _n(y_of(point[index]))))
-                continue
-            coords = [u'{0} {1}'.format(_n(x_of(p[0])), _n(y_of(p[index])))
-                      for p in segment]
-            out.append(u'<path class="pmc-line {0}" d="M{1}"/>'.format(
-                cls, u'L'.join(coords)))
         out.append(u'</g>')
 
     out.extend(ref_labels)

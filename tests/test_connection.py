@@ -317,7 +317,8 @@ class SupervisorTest(unittest.TestCase):
         reader.start()
         state.connection_wanted = True
         self.assertTrue(self._wait_for(lambda: state.is_connected()))
-        self.assertEqual(fake.work_period_minutes, 5)
+        self.assertEqual(fake.writes[0][4], 0)
+        self.assertTrue(self._wait_for(lambda: fake.work_period_minutes == 5))
         self.assertEqual(fake.writes[-1][4], 5)
 
         state.set_record_interval(60)
@@ -348,6 +349,8 @@ class SupervisorTest(unittest.TestCase):
         state = AppState(record_interval=300)
         reader = SensorReader(state, fake, idle_wait=0.01, silence_timeout=15,
                               backoff=Backoff(start=0.02, maximum=0.1))
+        self.assertEqual(reader._silence_limit(), 15)
+        reader._frames_since_connect = 1
         self.assertEqual(reader._silence_limit(), 330)
 
 

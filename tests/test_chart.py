@@ -118,18 +118,17 @@ class LinesTest(unittest.TestCase):
     def test_two_series_and_end_values(self):
         points = make_points(NOW - 600, NOW - 2, 5, pm25=12.34, pm10=25.0)
         root = parse(chart.render_svg(points, NOW))
-        self.assertEqual(len(by_class(root, 'path', 'pmc-s25')), 2)  # Linie + Legende
-        self.assertEqual(len(by_class(root, 'path', 'pmc-s10')), 2)
+        self.assertEqual(by_class(root, 'path', 'pmc-s25'), [])
+        self.assertEqual(by_class(root, 'path', 'pmc-s10'), [])
+        self.assertGreater(len(by_class(root, 'circle', 'pmc-f25')), 2)
+        self.assertGreater(len(by_class(root, 'circle', 'pmc-f10')), 2)
         values = [u''.join(el.itertext()) for el in by_class(root, 'text', 'pmc-value')]
         self.assertEqual(sorted(values), [u'12,3', u'25,0'])
         self.assertEqual(len(by_class(root, 'circle', 'pmc-end')), 2)
 
-    def test_gap_splits_paths(self):
+    def test_gap_splits_segments(self):
         points = make_points(NOW - 900, NOW - 600, 5) + make_points(NOW - 300, NOW, 5)
-        root = parse(chart.render_svg(points, NOW))
-        lines = [el for el in by_class(root, 'path', 'pmc-s25')
-                 if el.get('d').count(u'L') > 1]
-        self.assertEqual(len(lines), 2)
+        self.assertEqual(len(chart.split_segments(chart._clean(points, 5))), 2)
 
     def test_small_gap_does_not_split(self):
         # 12 s Abstand bei 5 s Intervall liegt unter 2.5 x 5 = 12.5 s.
@@ -166,7 +165,8 @@ class LinesTest(unittest.TestCase):
         root = parse(chart.render_svg(points, NOW))
         dots = [el for el in by_class(root, 'circle', 'pmc-f25')
                 if 'pmc-end' not in el.get('class')]
-        self.assertEqual(len(dots), 1)
+        # Alle Messpunkte sind Kreise; plus ein Kreis in der Legende.
+        self.assertEqual(len(dots), len(points) + 1)
 
     def test_end_labels_do_not_overlap(self):
         points = make_points(NOW - 600, NOW, 5, pm25=20.0, pm10=20.2)
@@ -199,23 +199,18 @@ class LinesTest(unittest.TestCase):
 
 class DownsamplingTest(unittest.TestCase):
 
-    def test_limits_point_count(self):
+    def test_render_uses_measured_points(self):
         points = make_points(NOW - 4320 * 5, NOW, 5)
         root = parse(chart.render_svg(points, NOW, range_s=0, width=400))
-        line = [el for el in by_class(root, 'path', 'pmc-s25')
-                if el.get('d').count(u'L') > 1]
-        self.assertEqual(len(line), 1)
-        self.assertLessEqual(path_points(line[0]), 400 // 2)
-        self.assertGreater(path_points(line[0]), 100)
+        dots = [el for el in by_class(root, 'circle', 'pmc-f25')
+                if 'pmc-end' not in el.get('class')]
+        # Alle Messpunkte plus ein Legendenpunkt; kein Bucket-Mittelwert.
+        self.assertEqual(len(dots), len(points) + 1)
 
     def test_gaps_stay_gaps(self):
         points = (make_points(NOW - 21600, NOW - 12000, 5)
                   + make_points(NOW - 9000, NOW, 5))
-        root = parse(chart.render_svg(points, NOW, range_s=21600, width=360))
-        lines = [el for el in by_class(root, 'path', 'pmc-s10')
-                 if el.get('d').count(u'L') > 1]
-        self.assertEqual(len(lines), 2)
-        self.assertLessEqual(sum(path_points(el) for el in lines), 360 // 2 + 2)
+        self.assertEqual(len(chart.split_segments(chart._clean(points, 5))), 2)
 
     def test_bucket_is_recorded_if_any_point_is(self):
         points = [(0.0, 10.0, 20.0, 5, False), (5.0, 12.0, 22.0, 5, True),
@@ -498,16 +493,16 @@ class RangeTest(unittest.TestCase):
     def test_range_limits_window(self):
         points = make_points(NOW - 7200, NOW, 5)
         root = parse(chart.render_svg(points, NOW, range_s=600, width=640))
-        line = [el for el in by_class(root, 'path', 'pmc-s25')
-                if el.get('d').count(u'L') > 1][0]
-        self.assertLessEqual(path_points(line), 600 // 5 + 1)
+        dots = [el for el in by_class(root, 'circle', 'pmc-f25')
+                if 'pmc-end' not in el.get('class')]
+        self.assertLessEqual(len(dots) - 1, 600 // 5 + 1)  # minus Legende
 
     def test_range_zero_shows_everything(self):
         points = make_points(NOW - 2 * 86400, NOW - 60, 60)
         root = parse(chart.render_svg(points, NOW, range_s=0, width=640, interval=60))
-        line = [el for el in by_class(root, 'path', 'pmc-s25')
-                if el.get('d').count(u'L') > 1][0]
-        first_x = float(re.match(r'M([\d.]+) ', line.get('d')).group(1))
+        dots = [el for el in by_class(root, 'circle', 'pmc-f25')
+                if 'pmc-end' not in el.get('class')]
+        first_x = min(float(el.get('cx')) for el in dots)
         self.assertLess(first_x, 60)
         self.assertIn(u'gesamter Verlauf', root.get('aria-label'))
         labels = [u''.join(el.itertext()) for el in by_class(root, 'text', 'pmc-axis')
