@@ -751,6 +751,11 @@ sub {
 
 .seg button.is-busy { color: var(--muted); }
 
+.seg-interval button {
+  padding: 0 1px;
+  font-size: 13px;
+}
+
 .seg-fit button {
   flex: none;
   padding: 0 10px;
@@ -1558,11 +1563,16 @@ sub {
 }
 
 /* -- Breiten ----------------------------------------------------------- */
-/* Handy: sechs Intervalle muessen in eine Zeile passen ("15 min"). */
+/* Handy: sieben Intervalle bleiben in einer Zeile, "15 min" soll lesbar bleiben. */
 @media (max-width: 400px) {
   .seg button {
     padding: 0 2px;
     font-size: 13px;
+  }
+
+  .seg-interval button {
+    padding: 0;
+    font-size: 12px;
   }
 
   .seg-fit button { padding: 0 8px; }

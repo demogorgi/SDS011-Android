@@ -327,7 +327,7 @@
 
     <div class="field" id="intervalField">
       <span class="label" id="intervalLabel">Messintervall</span>
-      <div class="seg" id="intervalSelect" role="group" aria-labelledby="intervalLabel">
+      <div class="seg seg-interval" id="intervalSelect" role="group" aria-labelledby="intervalLabel">
 % for seconds in (get('intervals', None) or ()):
         <button type="button" data-seconds="{{int(seconds)}}" aria-pressed="false">{{('%d min' % (int(seconds) // 60)) if int(seconds) >= 60 and int(seconds) % 60 == 0 else ('%d s' % int(seconds))}}</button>
 % end
