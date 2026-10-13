@@ -122,6 +122,10 @@ class Transport(object):
         wenn die Verbindung weg ist."""
         raise NotImplementedError
 
+    def write(self, data):
+        """Schreibt bytes zum Sensor. Wirft TransportError bei Fehlern."""
+        raise NotImplementedError
+
     def close(self):
         self.disconnect()
 
@@ -292,6 +296,21 @@ class AndroidBluetoothTransport(Transport):
         write_log(3, u'bluetooth read {0} byte'.format(len(data)))
         return data
 
+    def write(self, data):
+        if self._conn_id is None:
+            raise TransportError(u'Nicht verbunden.')
+        encoded = base64.b64encode(bytes(bytearray(data))).decode('ascii')
+        try:
+            with self._lock:
+                result = self._droid.bluetoothWriteBinary(encoded, self._conn_id)
+        except Exception as exc:
+            raise TransportError(u'Schreiben zum Sensor fehlgeschlagen: {0}'.format(
+                to_text(exc)))
+        if getattr(result, 'error', None):
+            raise TransportError(u'Schreiben zum Sensor abgelehnt: {0}'.format(
+                to_text(result.error)))
+        write_log(3, u'bluetooth write {0} byte'.format(len(bytearray(data))))
+
     def close(self):
         self.disconnect()
         # Kein droid.exit(): altes QPython kennt den Befehl nicht
@@ -346,6 +365,8 @@ class FakeTransport(Transport):
         self._device = None
         self._reads = 0
         self.connect_attempts = 0
+        self.writes = []
+        self.work_period_minutes = 0
 
         self._random = random.Random(seed)
         # Ruhige Grundlast, wie sie an einem normalen Tag anliegt.
@@ -428,6 +449,17 @@ class FakeTransport(Transport):
         del self._buffer[:max_bytes]
         return chunk
 
+    def write(self, data):
+        if not self._connected:
+            raise TransportError(u'Nicht verbunden.')
+        data = bytes(bytearray(data))
+        self.writes.append(data)
+        if (len(data) == protocol.COMMAND_FRAME_LEN and data[0] == protocol.HEAD
+                and data[1] == protocol.COMMAND and data[2] == protocol.CMD_WORK_PERIOD
+                and data[3] == 1):
+            self.work_period_minutes = data[4]
+        write_log(3, u'FakeTransport write {0} byte'.format(len(data)))
+
     def close(self):
         self.disconnect()
         write_log(0, 'FakeTransport geschlossen')
@@ -479,6 +511,9 @@ class SelectableTransport(Transport):
 
     def read(self, max_bytes):
         return self._active.read(max_bytes)
+
+    def write(self, data):
+        return self._active.write(data)
 
     def close(self):
         if self._fake is not None:

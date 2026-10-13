@@ -45,15 +45,21 @@ class AndroidReadTest(unittest.TestCase):
         self._saved = sys.modules.get('androidhelper')
         sys.modules['androidhelper'] = module
         self.reads = []
+        self.writes = []
 
         def read_binary(size, conn_id):
             self.reads.append(size)
             return base64.b64encode(b'\xaa\xc0').decode('ascii')
 
+        def write_binary(data, conn_id):
+            self.writes.append((data, conn_id))
+            return True
+
         FakeDroid.answers = {'toggleBluetoothState': True,
                              'bluetoothConnect': 'conn-1',
                              'bluetoothStop': True,
-                             'bluetoothReadBinary': read_binary}
+                             'bluetoothReadBinary': read_binary,
+                             'bluetoothWriteBinary': write_binary}
         from transport import AndroidBluetoothTransport
         self.transport = AndroidBluetoothTransport()
         self.transport.connect('00:14:03:05:59:17')
@@ -92,6 +98,11 @@ class AndroidReadTest(unittest.TestCase):
         self.assertEqual(self.transport.read(64), b'\xaa\xc0')
         self.assertEqual(self.reads, [64, 64])
         self.assertEqual(len(asked), 1)
+
+    def test_write_uses_base64_binary_rpc(self):
+        self.transport.write(b'\xaa\xb4')
+        self.assertEqual(self.writes, [(base64.b64encode(b'\xaa\xb4').decode('ascii'),
+                                        'conn-1')])
 
 
 class AndroidDeviceListTest(unittest.TestCase):

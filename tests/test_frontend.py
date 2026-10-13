@@ -171,11 +171,11 @@ class TemplateTest(SearchMixin, unittest.TestCase):
 
     def test_template_renders_with_intervals(self):
         """So ruft die Route '/' das Template auf: ein Knopf je Intervall."""
-        html = render_template(intervals=(5, 10, 30, 60, 300, 900))
+        html = render_template(intervals=(1, 5, 10, 30, 60, 300, 900))
         found = re.findall(r'data-seconds="(\d+)"[^>]*>([^<]*)<', html)
-        self.assertEqual([int(s) for s, _ in found], [5, 10, 30, 60, 300, 900])
+        self.assertEqual([int(s) for s, _ in found], [1, 5, 10, 30, 60, 300, 900])
         self.assertEqual([label for _, label in found],
-                         ['5 s', '10 s', '30 s', '1 min', '5 min', '15 min'])
+                         ['1 s', '5 s', '10 s', '30 s', '1 min', '5 min', '15 min'])
         self.assertIn(config.XSENSOR, html)
 
     def test_template_renders_without_intervals(self):

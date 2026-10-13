@@ -37,6 +37,28 @@ class BuildAndParseTest(unittest.TestCase):
         self.assertEqual((reading.pm_25, reading.pm_10), (999.9, 999.9))
 
 
+class CommandTest(unittest.TestCase):
+
+    def test_work_period_continuous_command(self):
+        command = protocol.build_work_period_command(0)
+        self.assertEqual(len(command), protocol.COMMAND_FRAME_LEN)
+        self.assertEqual(command[:5], b'\xaa\xb4\x08\x01\x00')
+        self.assertEqual(command[-1:], b'\xab')
+        self.assertEqual(command[15:17], b'\xff\xff')
+        self.assertEqual(command[-2], sum(bytearray(command[2:17])) % 256)
+
+    def test_work_period_five_minutes_command(self):
+        command = protocol.build_work_period_command(5, device_id=0xA160)
+        self.assertEqual(command[:5], b'\xaa\xb4\x08\x01\x05')
+        self.assertEqual(command[15:17], b'\xa1\x60')
+        self.assertEqual(command[-2], sum(bytearray(command[2:17])) % 256)
+
+    def test_work_period_range(self):
+        for value in (-1, 31, True):
+            with self.assertRaises(ValueError):
+                protocol.build_work_period_command(value)
+
+
 class RejectTest(unittest.TestCase):
 
     def setUp(self):

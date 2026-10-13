@@ -2,6 +2,7 @@ __pycache__/
 *.py[co]
 output/
 .pytest_cache/
+.tmp/
 .venv/
 venv/
 

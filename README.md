@@ -74,11 +74,10 @@ WLAN läuft.
 *verbinde*, *verbunden*, *wartet* auf den nächsten Versuch).
 Reißt die Verbindung ab, verbindet die App selbst neu, mit wachsenden
 Abständen. Als abgerissen gilt sie auch, wenn `SENSOR_SILENCE_TIMEOUT`
-Sekunden lang keine Daten kommen (Sensor aus, außer Reichweite). Der
-SDS011 muss dafür im Dauerbetrieb laufen (Werkseinstellung); wurde er mit
-einem anderen Programm auf periodisches Messen umgestellt, meldet die App
-ständig „Keine Daten vom Sensor“. *Trennen*
-beendet das Neuverbinden, auch mitten in einer Wartezeit; ein gerade
+Sekunden lang keine Daten kommen (Sensor aus, außer Reichweite); bei
+absichtlich gesetztem SDS011-5-Minuten-Zyklus verlängert die App diese
+Schwelle automatisch. *Trennen* setzt den SDS011 wieder auf Dauerbetrieb
+und beendet das Neuverbinden, auch mitten in einer Wartezeit; ein gerade
 laufender Verbindungsversuch wird noch zu Ende gebracht.
 
 **Simulierter Sensor:** Ganz unten in der Geräteliste steht immer
@@ -122,12 +121,18 @@ Position ansehen* erscheint bei Messfahrt und lokaler Messung; mit
 aktuellem GPS-Fix zentriert er auf die Handy-Position, sonst auf den
 festen Sensorstandort. Am PC sind es gewöhnliche Links.
 
-**Messintervall:** In der Karte *Messung* wählbar, von 5 s bis 15 min
-(`RECORD_INT_CHOICES`). Der Sensor liefert etwa einen Wert pro Sekunde; die
-App mittelt alle Werte eines Intervalls und speichert den Mittelwert als
-einen Punkt: eine Zeile in der CSV, bei der Messfahrt auch ein KML-Punkt.
-Eine Änderung gilt sofort, auch mitten in einer Messung, und bleibt nach
-einem Neustart erhalten (`einstellungen.json` im Speicherort).
+**Messintervall:** In der Karte *Messung* wählbar, von 1 s bis 15 min
+(`RECORD_INT_CHOICES`). Bei 1 s bis 1 min bleibt der SDS011 im
+Dauerbetrieb und liefert etwa einen Wert pro Sekunde. Bei 5 und 15 min
+setzt die App den SDS011 auf seine 5-Minuten-Working-Period: etwa 30 s
+messen, dann schlafen. Ein 15-min-Punkt mittelt dadurch typischerweise
+drei kurze Messphasen. Beim Trennen und Beenden setzt die App den Sensor
+wieder auf Dauerbetrieb; wirklich aus ist er erst über den
+Hardwareschalter. Die App mittelt alle Werte eines Intervalls und
+speichert den Mittelwert als einen Punkt: eine Zeile in der CSV, bei der
+Messfahrt auch ein KML-Punkt. Eine Änderung gilt sofort, auch mitten in
+einer Messung, und bleibt nach einem Neustart erhalten
+(`einstellungen.json` im Speicherort).
 
 **Verlauf:** Das Diagramm zeichnet der Server als SVG aus denselben
 Mittelwerten, die in die Datei gehen. Er sammelt sie, sobald ein Sensor
@@ -294,7 +299,7 @@ KONFIGURATIONSOPTIONEN*:
 |---|---|---|
 | `LOG_LEVEL` | `1` | 0 nur Fehler, 1 Betrieb, 2 Details, 3 Protokoll-Debug |
 | `RECORD_INT` | `5` | Messintervall in Sekunden, bis es in der Oberfläche umgestellt wird: so lange wird gemittelt, dann ein Punkt in CSV/KML und Diagramm |
-| `RECORD_INT_CHOICES` | `(5, 10, 30, 60, 300, 900)` | Messintervalle zur Auswahl in der Oberfläche |
+| `RECORD_INT_CHOICES` | `(1, 5, 10, 30, 60, 300, 900)` | Messintervalle zur Auswahl in der Oberfläche |
 | `HISTORY_SIZE` | `4320` | Punkte im Verlauf des Diagramms (6 h bei 5 s, 3 Tage bei 1 min) |
 | `GPS_INT` | `5` | Sekunden zwischen zwei GPS-Abfragen |
 | `GPS_RESTART_AFTER` | `60` | GPS so viele Sekunden stumm: bei Android neu anmelden (nur auf dem Handy) |
@@ -303,7 +308,10 @@ KONFIGURATIONSOPTIONEN*:
 | `STATIONARY_MAX_DISTANCE_M` | `500` | Bei frischem GPS-Fix maximal erlaubte Entfernung vom konfigurierten Sensorstandort für den stationären Modus |
 | `STAT_INT` | `240` | Sekunden zwischen zwei Uploads im stationären Modus; sensor.community erwartet etwa alle 2–5 min einen Wert, also nicht unter 150 |
 | `MAX_MEASUREMENT_AGE` | `10` | Messwert älter als so viele Sekunden: nicht aufzeichnen, nicht hochladen |
-| `SENSOR_SILENCE_TIMEOUT` | `15` | So viele Sekunden keine Daten: Verbindung gilt als abgerissen, neu verbinden |
+| `SENSOR_SILENCE_TIMEOUT` | `15` | So viele Sekunden keine Daten: Verbindung gilt als abgerissen, neu verbinden; bei gesetzter SDS011-Working-Period automatisch länger |
+| `SDS011_POWER_SAVE_MIN_INTERVAL` | `300` | Ab diesem Messintervall setzt die App den Sensor auf den Energiespar-Zyklus |
+| `SDS011_POWER_SAVE_PERIOD` | `5` | SDS011-Working-Period in Minuten: etwa 30 s messen, dann bis zum nächsten Zyklus schlafen |
+| `SDS011_POWER_SAVE_SILENCE_SLACK` | `30` | Zuschlag in Sekunden für den Stille-Wächter während der SDS011-Schlafphasen |
 | `SSP_UUID` | SPP-Standard-UUID | Bluetooth-Dienst des HC-Moduls (Android) |
 | `RFCOMM_CHANNEL` | `1` | RFCOMM-Kanal am PC |
 | `SDS011_BLUETOOTH_DEVICE_ID` | `00:14:03:05:59:17` | MAC des eigenen Moduls, vorgewählt bzw. Rückfall, wenn keine Geräteliste kommt |

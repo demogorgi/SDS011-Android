@@ -3,7 +3,8 @@
 
 Reine Byte-Arithmetik ohne Hardware und Threads, deshalb vollstaendig am
 PC testbar. sensor.py nutzt den FrameDecoder, die Simulation in
-transport.py baut ihre Pakete mit build_frame().
+transport.py baut ihre Pakete mit build_frame() und sensor.py
+Konfigurationskommandos mit build_work_period_command().
 
 Ein Datenpaket ist 10 Byte lang:
 
@@ -20,8 +21,12 @@ from __future__ import absolute_import
 
 HEAD = 0xAA
 COMMANDER_NO = 0xC0
+COMMAND = 0xB4
 TAIL = 0xAB
 FRAME_LEN = 10
+COMMAND_FRAME_LEN = 19
+
+CMD_WORK_PERIOD = 0x08
 
 _HEAD_BYTES = b'\xaa'
 
@@ -90,6 +95,39 @@ def build_frame(pm_25, pm_10, device_id=0xA160):
     return bytes(bytearray([HEAD, COMMANDER_NO])
                  + payload
                  + bytearray([checksum(payload), TAIL]))
+
+
+def build_command(command, write, value, device_id=0xFFFF):
+    """Baut ein 19-Byte-Kommando an den SDS011.
+
+    command ist das Protokollkommando (z. B. CMD_WORK_PERIOD), write
+    unterscheidet Abfrage (False) und Setzen (True), value ist der
+    Kommandowert. device_id=0xFFFF adressiert wie im Datenblatt alle
+    Sensoren am Bus; bei Bluetooth haengt ohnehin nur einer daran.
+    """
+    payload = bytearray([0] * 15)
+    payload[0] = int(command) & 0xFF
+    payload[1] = 1 if write else 0
+    payload[2] = int(value) & 0xFF
+    payload[13] = (int(device_id) >> 8) & 0xFF
+    payload[14] = int(device_id) & 0xFF
+    return bytes(bytearray([HEAD, COMMAND])
+                 + payload
+                 + bytearray([checksum(payload), TAIL]))
+
+
+def build_work_period_command(minutes, device_id=0xFFFF):
+    """Setzt die SDS011 Working Period.
+
+    minutes=0 bedeutet Dauerbetrieb. 1..30 bedeutet: etwa 30 s arbeiten
+    und danach bis zum naechsten Minutenzyklus schlafen.
+    """
+    if isinstance(minutes, bool) or int(minutes) != minutes:
+        raise ValueError('working period must be a whole number of minutes')
+    minutes = int(minutes)
+    if minutes < 0 or minutes > 30:
+        raise ValueError('working period must be between 0 and 30 minutes')
+    return build_command(CMD_WORK_PERIOD, True, minutes, device_id)
 
 
 class FrameDecoder(object):

@@ -27,7 +27,7 @@ LOG_LEVEL = 1
 # auch nach einem Neustart. Sollte einer der RECORD_INT_CHOICES sein.
 RECORD_INT = 5
 # Messintervalle in Sekunden, die die Oberflaeche zur Wahl stellt.
-RECORD_INT_CHOICES = (5, 10, 30, 60, 300, 900)
+RECORD_INT_CHOICES = (1, 5, 10, 30, 60, 300, 900)
 # So viele Intervall-Mittelwerte behaelt der Verlauf fuer das Diagramm:
 # 6 h bei 5 s, 3 Tage bei 1 min. Aeltere fallen heraus.
 HISTORY_SIZE = 4320
@@ -58,7 +58,17 @@ MAX_MEASUREMENT_AGE = 10
 # Kommt so viele Sekunden lang kein Byte vom Sensor, gilt die Verbindung
 # als abgerissen und wird neu aufgebaut. Unter Android meldet ein
 # abgerissenes Bluetooth sonst nur "keine Daten", aber keinen Fehler.
+# Wenn der Sensor per Working Period absichtlich schlaeft, verlaengert
+# sensor.py diese Schwelle passend zur Pausenzeit.
 SENSOR_SILENCE_TIMEOUT = 15
+# Ab diesem Auswerteintervall schaltet die App den SDS011 waehrend der
+# Messung in seinen 5-Minuten-Zyklus: etwa 30 s messen, dann schlafen.
+# Bei kuerzeren Intervallen laeuft er im Dauerbetrieb. Beim Trennen und
+# Beenden setzt die App wieder Dauerbetrieb, damit nur der Hardwareschalter
+# den Sensor wirklich ausschaltet.
+SDS011_POWER_SAVE_MIN_INTERVAL = 300
+SDS011_POWER_SAVE_PERIOD = 5
+SDS011_POWER_SAVE_SILENCE_SLACK = 30
 
 # UUID des Serial Port Profile (SPP), ueber das Android die Verbindung
 # zum Bluetooth-Modul aufbaut.

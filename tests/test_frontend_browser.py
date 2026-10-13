@@ -273,7 +273,7 @@ class BrowserTest(unittest.TestCase):
     # -- Messintervall ------------------------------------------------
     def test_interval_change_reaches_server(self):
         interval = self._phase('interval')['interval']
-        self.assertEqual(interval['buttons'], ['5', '10', '30', '60', '300', '900'])
+        self.assertEqual(interval['buttons'], ['1', '5', '10', '30', '60', '300', '900'])
         self.assertEqual(interval['server'], interval['target'])
         self.assertEqual(interval['pressed'], [str(interval['target'])])
         self.assertIn(u'Mittelwerte je %d s' % interval['target'], interval['caption'])

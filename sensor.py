@@ -18,6 +18,7 @@ import state as state_module
 from state import monotonic
 from connection import Backoff
 from logging_util import to_text, write_log
+import protocol
 from protocol import FrameDecoder
 from transport import TransportError
 
@@ -42,10 +43,62 @@ class SensorReader(threading.Thread):
                                  if silence_timeout is None else silence_timeout)
         # Zeitpunkt (monotonic) der letzten Bytes bzw. des Verbindens.
         self._last_data = None
+        self._working_period = None
         self._running = True
         self.frames_seen = 0
 
     # -- Verbindung ---------------------------------------------------
+    def _wanted_working_period(self):
+        """SDS011 Working Period fuer das aktuelle Messintervall."""
+        if self._state.record_interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL:
+            return config.SDS011_POWER_SAVE_PERIOD
+        return 0
+
+    def _silence_limit(self):
+        """Wie lange Stille normal ist.
+
+        Im SDS011-Working-Period-Modus schlaeft der Sensor zwischen den
+        30-s-Messphasen. Diese geplante Pause darf nicht als
+        Verbindungsabbruch gelten.
+        """
+        period = self._working_period
+        if period is None:
+            period = self._wanted_working_period()
+        if period > 0:
+            return max(self._silence_timeout,
+                       period * 60 + config.SDS011_POWER_SAVE_SILENCE_SLACK)
+        return self._silence_timeout
+
+    def _set_working_period(self, minutes, reason):
+        """Setzt die Working Period des SDS011 und merkt den Zustand."""
+        command = protocol.build_work_period_command(minutes)
+        self._transport.write(command)
+        self._working_period = minutes
+        label = (u'Dauerbetrieb' if minutes == 0
+                 else u'{0}-Minuten-Zyklus'.format(minutes))
+        write_log(1, u'SDS011: {0} ({1})'.format(label, reason))
+
+    def _apply_working_period(self):
+        wanted = self._wanted_working_period()
+        if wanted != self._working_period:
+            self._set_working_period(wanted, u'Messintervall {0} s'.format(
+                self._state.record_interval()))
+
+    def _restore_continuous(self, reason):
+        """Beim Trennen/Beenden den persistenten Working-Period-Wert
+        zurueck auf Dauerbetrieb setzen. Fehler verhindern das Trennen
+        nicht.
+        """
+        if self._working_period is None and not self._transport.is_connected():
+            self._working_period = None
+            return
+        try:
+            self._set_working_period(0, reason)
+        except Exception as exc:
+            write_log(0, u'SDS011-Dauerbetrieb konnte nicht gesetzt werden: {0}'.format(
+                to_text(exc)))
+        self._working_period = None
+
     def _drop(self, message):
         """Verbindung trennen, Decoder zuruecksetzen und den Grund anzeigen.
 
@@ -56,6 +109,7 @@ class SensorReader(threading.Thread):
             self._transport.disconnect()
         except Exception as exc:
             write_log(0, u'disconnect fehlgeschlagen: {0}'.format(to_text(exc)))
+        self._working_period = None
         self._decoder = FrameDecoder()
         if self._state.connection_wanted:
             self._state.set_connection(state_module.CONN_RETRYING, message)
@@ -99,7 +153,14 @@ class SensorReader(threading.Thread):
         self._state.set_connection(state_module.CONN_CONNECTING, u'')
         try:
             self._transport.connect(device_id)
+            self._working_period = None
+            self._apply_working_period()
         except TransportError as exc:
+            try:
+                self._transport.disconnect()
+            except Exception:
+                pass
+            self._working_period = None
             delay = self._backoff.next_delay()
             write_log(1, u'Verbindung fehlgeschlagen ({0}), naechster Versuch in {1:.0f}s'
                       .format(to_text(exc), delay))
@@ -107,6 +168,11 @@ class SensorReader(threading.Thread):
             self._wait_retry(delay, device_id)
             return False
         except Exception as exc:
+            try:
+                self._transport.disconnect()
+            except Exception:
+                pass
+            self._working_period = None
             # Unerwartetes protokollieren und anzeigen, aber den Thread
             # nicht beenden.
             delay = self._backoff.next_delay()
@@ -127,6 +193,7 @@ class SensorReader(threading.Thread):
             # 1. Der Benutzer will keine Verbindung.
             if not self._state.connection_wanted:
                 if self._transport.is_connected():
+                    self._restore_continuous(u'Trennen')
                     self._transport.disconnect()
                     write_log(1, 'Verbindung auf Wunsch getrennt')
                 if self._state.connection()[0] != state_module.CONN_DISCONNECTED:
@@ -143,6 +210,7 @@ class SensorReader(threading.Thread):
 
             # 3. Verbunden -- lesen.
             try:
+                self._apply_working_period()
                 chunk = self._transport.read(self.READ_SIZE)
             except TransportError as exc:
                 write_log(0, u'Lesefehler: {0}'.format(to_text(exc)))
@@ -161,11 +229,12 @@ class SensorReader(threading.Thread):
                 if silent < 0:
                     # Uhr zurueckgestellt (Python 2: monotonic = time.time).
                     self._last_data = monotonic()
-                elif silent > self._silence_timeout:
+                limit = self._silence_limit()
+                if silent > limit:
                     write_log(1, u'Seit {0:.0f}s keine Daten vom Sensor, verbinde neu'
-                              .format(self._silence_timeout))
+                              .format(limit))
                     self._drop_and_wait(
-                        u'Keine Daten vom Sensor. Eingeschaltet und im Dauerbetrieb?')
+                        u'Keine Daten vom Sensor. Eingeschaltet?')
                     continue
                 # Nichts da: kurz warten, sonst dreht die Schleife leer.
                 if self._state.wait(self._idle_wait):
@@ -185,4 +254,5 @@ class SensorReader(threading.Thread):
     def stop(self):
         """Schleife beenden und den Transport schliessen."""
         self._running = False
+        self._restore_continuous(u'Beenden')
         self._transport.close()

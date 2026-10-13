@@ -234,5 +234,19 @@ class BluetoothSocketTransport(Transport):
         write_log(3, u'bluetooth read {0} byte'.format(len(data)))
         return data
 
+    def write(self, data):
+        """Schreibt bytes zum Sensor. TransportError, wenn es fehlschlaegt."""
+        with self._lock:
+            sock = self._socket
+        if sock is None:
+            raise TransportError(u'Nicht verbunden.')
+        data = bytes(bytearray(data))
+        try:
+            sock.sendall(data)
+        except Exception as exc:
+            raise TransportError(u'Schreiben zum Sensor fehlgeschlagen: %s'
+                                 % to_text(exc))
+        write_log(3, u'bluetooth write {0} byte'.format(len(data)))
+
     def close(self):
         self.disconnect()

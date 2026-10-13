@@ -6,6 +6,7 @@ from __future__ import absolute_import
 import time
 import unittest
 
+import protocol
 import state as state_module
 from connection import Backoff
 from sensor import SensorReader
@@ -84,6 +85,13 @@ class FakeTransportConnectionTest(unittest.TestCase):
         for entry in devices:
             self.assertIn('id', entry)
             self.assertIn('name', entry)
+
+    def test_write_work_period_command(self):
+        fake = FakeTransport()
+        fake.connect()
+        fake.write(protocol.build_work_period_command(5))
+        self.assertEqual(fake.work_period_minutes, 5)
+        self.assertEqual(fake.writes[-1][4], 5)
 
 
 class CountingBackoff(Backoff):
@@ -300,6 +308,47 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(fake._device, second)
         state.shutdown()
         reader.join(3)
+
+    def test_long_interval_sets_five_minute_working_period(self):
+        fake = FakeTransport(interval=0.01)
+        state = AppState(record_interval=300)
+        reader = SensorReader(state, fake, idle_wait=0.01,
+                              backoff=Backoff(start=0.02, maximum=0.1))
+        reader.start()
+        state.connection_wanted = True
+        self.assertTrue(self._wait_for(lambda: state.is_connected()))
+        self.assertEqual(fake.work_period_minutes, 5)
+        self.assertEqual(fake.writes[-1][4], 5)
+
+        state.set_record_interval(60)
+        self.assertTrue(self._wait_for(lambda: fake.work_period_minutes == 0))
+        state.connection_wanted = False
+        self.assertTrue(self._wait_for(lambda: not fake.is_connected()))
+        self.assertEqual(fake.writes[-1][4], 0)
+        state.shutdown()
+        reader.join(3)
+
+    def test_one_second_interval_keeps_continuous_mode(self):
+        fake = FakeTransport(interval=0.01)
+        state = AppState(record_interval=1)
+        reader = SensorReader(state, fake, idle_wait=0.01,
+                              backoff=Backoff(start=0.02, maximum=0.1))
+        reader.start()
+        state.connection_wanted = True
+        self.assertTrue(self._wait_for(lambda: state.is_connected()))
+        self.assertEqual(fake.work_period_minutes, 0)
+        self.assertEqual(fake.writes[-1][4], 0)
+        state.shutdown()
+        reader.stop()
+        reader.join(3)
+        self.assertEqual(fake.writes[-1][4], 0)
+
+    def test_power_save_extends_silence_timeout(self):
+        fake = FakeTransport(interval=0.01)
+        state = AppState(record_interval=300)
+        reader = SensorReader(state, fake, idle_wait=0.01, silence_timeout=15,
+                              backoff=Backoff(start=0.02, maximum=0.1))
+        self.assertEqual(reader._silence_limit(), 330)
 
 
 if __name__ == '__main__':
