@@ -10,7 +10,9 @@ per Bluetooth oder mit simulierter Hardware.
 
 <p align="center">Angelehnt an<br>https://github.com/optiprime/Feinstaubsensor</p>
 
-<div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/Screenshot_QPython%203L.jpg" width=20% alt="Screenshot der Weboberfläche"></div>
+<div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/light_mode_1.jpg" width=20% alt="Screenshot Oberfläche 1"></div>
+<div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/light_mode_2.jpg" width=20% alt="Screenshot Oberfläche 2"></div>
+<div><img src="https://github.com/demogorgi/SDS011-Android/blob/main/dark_mode.jpg" width=20% alt="Screenshot der Oberfläche (dark mode)"></div>
 
 ## Hardware
 
