@@ -708,6 +708,38 @@ class PointIntervalTest(RecorderTestCase):
         rec._record_step()
         self.assertEqual(self.state.history()[-1][3], 5)
 
+    def _stationary_initial_recorder(self):
+        self.state.set_record_interval(300)
+        rec = Recorder(self.state, outdir=self.tmp)
+        rec._open_files(recorder_module.MODE_STATIONARY)
+        rec._window_mode = recorder_module.MODE_STATIONARY
+        rec._start_window()
+        rec._stationary_initial_pending = True
+        rec._push_totals = rec._window_totals
+        return rec
+
+    def test_stationary_initial_point_uses_first_wake_window(self):
+        rec = self._stationary_initial_recorder()
+        awake = config.SDS011_POWER_SAVE_SETTLE + config.SDS011_POWER_SAVE_SAMPLE_WINDOW
+        self.t += awake
+        self.state.set_measurement(20.0, 30.0)
+        self.assertTrue(rec._record_step())
+        self.assertAlmostEqual(self.state.history()[-1][3], awake)
+        rec._advance_window(True)
+        self.assertFalse(rec._stationary_initial_pending)
+        self.assertAlmostEqual(rec._window_start, self.t)
+        self.assertAlmostEqual(rec._window_start + 300, self.t + 300)
+
+    def test_stationary_initial_point_requires_new_sample(self):
+        rec = self._stationary_initial_recorder()
+        self.t += config.SDS011_POWER_SAVE_SETTLE + config.SDS011_POWER_SAVE_SAMPLE_WINDOW
+        self.assertFalse(rec._record_step())
+        self.assertEqual(_csv_rows(self.tmp), [])
+        rec._advance_window(False)
+        self.assertTrue(rec._stationary_initial_pending)
+        retry_due = rec._window_start + rec._stationary_initial_seconds()
+        self.assertAlmostEqual(retry_due, self.t + rec.PUSH_RETRY)
+
 
 class FlushWindowTest(RecorderTestCase):
     """Stop, Moduswechsel und Beenden verwarfen das angefangene

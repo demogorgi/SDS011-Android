@@ -1021,7 +1021,7 @@
       if (!upload.last_ok && upload.last_message) {
         text += ': ' + upload.last_message;
       }
-    } else if (!isNumber(data && data.measurement_age)) {
+    } else {
       text = 'Upload wartet auf ersten Mittelwert';
     }
     setAttr(box, 'data-state', state);

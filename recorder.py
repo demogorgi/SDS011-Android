@@ -6,10 +6,9 @@ main.py startet den Recorder als Thread. Er liest Messwerte und Position
 aus dem AppState (state.py), den Sensor selbst liest er nicht. Je
 Messintervall mittelt er alle Sensorwerte, haengt den Mittelwert an den
 Verlauf im AppState (daraus zeichnet webapp.py das Diagramm) und
-schreibt ihn bei laufender Messung in die Dateien. Der Upload im
-stationaeren Modus mittelt ueber sein eigenes, laengeres Fenster. Alle
-Wartezeiten laufen ueber state.wait(), damit sich das Programm sofort
-beenden laesst und nicht bis zu STAT_INT Sekunden haengt.
+schreibt ihn bei laufender Messung in die Dateien. Im stationaeren Modus
+wird jeder neue Mittelwert direkt hochgeladen. Alle Wartezeiten laufen
+ueber state.wait(), damit sich das Programm sofort beenden laesst.
 """
 
 from __future__ import absolute_import
@@ -182,10 +181,11 @@ class Recorder(threading.Thread):
     offene KML-Dateien. Eigene Probleme zeigt er als Hinweis in der
     Oberflaeche an, statt still zu sterben.
 
-    Zwei Zeitfenster: das Aufzeichnungsfenster (ein Messintervall, ein
-    Punkt) und das Upload-Fenster (STAT_INT). Beide merken sich die
-    Summen aus state.sample_totals() zu ihrem Beginn; der Mittelwert ist
-    die Differenz bis jetzt.
+    Das Aufzeichnungsfenster merkt sich die Summen aus
+    state.sample_totals() zu seinem Beginn; der Mittelwert ist die
+    Differenz bis jetzt. Im stationaeren Modus merkt sich das
+    Upload-Fenster denselben Summenstand, damit genau der neue Punkt
+    hochgeladen wird.
     """
 
     # Wie oft geprueft wird, ob eine Taste gedrueckt wurde.
@@ -249,6 +249,9 @@ class Recorder(threading.Thread):
         # Zuletzt an den AppState gemeldete Termine, damit er nicht bei
         # jedem Tick neu beschrieben wird.
         self._published = None
+        # Beim Start des stationaeren Modus entsteht der erste Punkt schon
+        # nach der ersten kompletten Wachphase, danach im normalen Intervall.
+        self._stationary_initial_pending = False
 
         self.last_files = None
         self._fname_25 = None
@@ -407,9 +410,32 @@ class Recorder(threading.Thread):
     def _sleep_age_limit(self):
         """So alt darf der letzte Wert waehrend geplanter Schlafphasen sein."""
         return (max(self._interval(),
-                    config.SDS011_POWER_SAVE_SETTLE
-                    + config.SDS011_POWER_SAVE_SAMPLE_WINDOW)
+                    self._power_save_awake_seconds())
                 + config.SDS011_POWER_SAVE_SILENCE_SLACK)
+
+    def _power_save_awake_seconds(self):
+        """Dauer der Wachphase: Einpendeln plus verwertbares Messfenster."""
+        return (config.SDS011_POWER_SAVE_SETTLE
+                + config.SDS011_POWER_SAVE_SAMPLE_WINDOW)
+
+    def _stationary_initial_seconds(self):
+        """Wartezeit bis zum ersten stationaeren Mittelwert.
+
+        Bei den echten 5-/15-min-Intervallen ist das die erste komplette
+        Wachphase. Kurze Test-/Sonderintervalle bleiben beim Intervall,
+        damit sie nicht kuenstlich verlaengert werden.
+        """
+        interval = self._interval()
+        if interval >= config.SDS011_POWER_SAVE_MIN_INTERVAL:
+            return min(interval, self._power_save_awake_seconds())
+        return interval
+
+    def _stationary_initial_active(self):
+        return self._files_mode == MODE_STATIONARY and self._stationary_initial_pending
+
+    def _stationary_initial_requires_new_sample(self):
+        return (self._stationary_initial_active()
+                and self._interval() >= config.SDS011_POWER_SAVE_MIN_INTERVAL)
 
     def _is_expected_sleeping(self):
         """True, wenn die Stille zum geplanten Sleep/Wake-Zyklus passt."""
@@ -477,7 +503,8 @@ class Recorder(threading.Thread):
         # verwuerfe bei 15 min Intervall ein kurzer Aussetzer am
         # Fensterende die ganze Viertelstunde. Ohne Werte im Fenster
         # entscheidet das Alter des letzten Messwerts.
-        fresh = count > 0 or self._is_fresh()
+        fresh = count > 0 or (not self._stationary_initial_requires_new_sample()
+                              and self._is_fresh())
         if recording:
             self._check_fresh(fresh, self._consequence(u'nichts aufgezeichnet'))
         if not fresh:
@@ -541,7 +568,7 @@ class Recorder(threading.Thread):
             return self._interval()
         span = min(max(0.0, _now() - self._window_start),
                    self._window_interval + self._window_busy)
-        if final:
+        if final or self._stationary_initial_active():
             return span
         interval = self._interval()
         return span if span > interval else interval
@@ -803,7 +830,10 @@ class Recorder(threading.Thread):
                     and self._has_current_or_sleeping_value()):
                 self._clear(HINT_STALE)
             now = _now()
-            record_at = self._window_start + self._interval()
+            if mode == MODE_STATIONARY and self._stationary_initial_pending:
+                record_at = self._window_start + self._stationary_initial_seconds()
+            else:
+                record_at = self._window_start + self._interval()
             push_at = record_at if mode == MODE_STATIONARY else None
             self._publish(now, record_at, push_at)
             record_due = now >= record_at
@@ -835,13 +865,23 @@ class Recorder(threading.Thread):
         self._window_busy = 0.0
         self._window_totals = self._state.sample_totals()
 
-    def _advance_window(self):
+    def _advance_window(self, recorded=True):
         """Das naechste Fenster beginnt dort, wo der eben faellige Punkt
         faellig war -- so summiert sich keine Verspaetung auf. Liegt das
         mehr als ein Intervall zurueck (das Geraet schlief), beginnt es
         jetzt, sonst kaemen die verpassten Punkte alle auf einmal."""
         now = _now()
         interval = self._interval()
+        if self._stationary_initial_pending:
+            if recorded:
+                self._stationary_initial_pending = False
+                self._window_start = now
+            else:
+                retry = min(self.PUSH_RETRY, self._stationary_initial_seconds())
+                self._window_start = now + retry - self._stationary_initial_seconds()
+            self._window_interval = interval
+            self._window_busy = 0.0
+            return
         due_at = self._window_start + interval
         if now - due_at > interval:
             self._window_start = now
@@ -877,8 +917,11 @@ class Recorder(threading.Thread):
             self._window_mode = mode
             self._start_window()
             if mode == MODE_STATIONARY:
+                self._stationary_initial_pending = True
                 self._push_totals = self._window_totals
                 self._push_retry_at = None
+            else:
+                self._stationary_initial_pending = False
 
         if mode is not None and not self._files_open:
             self._open_files(mode)
@@ -892,7 +935,7 @@ class Recorder(threading.Thread):
             try:
                 recorded = self._record_step()
             finally:
-                self._advance_window()
+                self._advance_window(recorded)
         if push_due and (not record_due or recorded):
             self._push()
 

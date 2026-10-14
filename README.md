@@ -129,7 +129,10 @@ etwa einen Wert pro Sekunde. Bei 5 und 15 min steuert die App den SDS011
 per manuellem Sleep/Wake: je Messintervall eine Wachphase, zuerst 15 s
 Einschwingzeit, danach 30 s verwertbare 1-Hz-Rohwerte. Einschwingwerte
 bleiben im Rohwert-Plot sichtbar, gehen aber nicht in Mittelwerte, CSV oder
-Upload. Ein 15-min-Punkt nutzt dadurch genau eine verwertbare Messphase.
+Upload. Beim Start des stationären Modus entsteht der erste Mittelwert
+schon nach dieser ersten kompletten Wachphase, also nach etwa 45 s; danach
+läuft der normale 5- bzw. 15-min-Takt. Ein 15-min-Punkt nutzt dadurch genau
+eine verwertbare Messphase.
 Beim Trennen und Beenden setzt die App den Sensor wieder auf Dauerbetrieb;
 wirklich aus ist er erst über den Hardwareschalter. Die App mittelt alle
 verwertbaren Werte eines Intervalls und
@@ -205,8 +208,9 @@ Datei.
   Laptop, blockiert diese Prüfung nicht. Hochgeladen wird per HTTPS.
   Fehlt QPython das `ssl`-Modul oder scheitert HTTPS dauerhaft an
   Zertifikaten bzw. Protokoll, geht der Upload über HTTP. Ein Timeout
-  zählt nicht als dauerhaft. Gesendet wird nur, wenn ein neuer stationärer
-  Mittelwert entstanden ist.
+  zählt nicht als dauerhaft. Der erste Upload kommt nach der ersten
+  kompletten Wachphase, danach nur, wenn ein neuer stationärer Mittelwert
+  entstanden ist.
 
 **Kein aktueller Messwert:** Ist der letzte Wert vom Sensor älter als
 `MAX_MEASUREMENT_AGE` (Verbindung weg), wird nichts hochgeladen, und ein
