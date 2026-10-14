@@ -129,6 +129,17 @@ class HistoryTest(unittest.TestCase):
         state.history().append('fremd')
         self.assertEqual(len(state.history()), 1)
 
+    def test_clear_history_removes_mean_and_raw_points(self):
+        state = AppState()
+        state.add_history_point(100, 1.0, 2.0, 5, False)
+        state.set_measurement(3.0, 4.0, epoch=101)
+        state.clear_history()
+        self.assertEqual(state.history(), [])
+        self.assertEqual(state.raw_history(), [])
+        self.assertEqual(state.history_rev(), 2)
+        self.assertEqual(state.raw_history_rev(), 2)
+        self.assertEqual(state.measurement(), (3.0, 4.0))
+
 
 class RawHistoryTest(unittest.TestCase):
 

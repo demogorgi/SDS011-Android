@@ -609,6 +609,17 @@ class HistoryRouteTest(unittest.TestCase):
         self.assertEqual(payload['points'], [])
         self.assertEqual(payload['rev'], 0)
 
+    def test_clear_history_route_clears_mean_and_raw_plot(self):
+        self.state.set_measurement(7.0, 8.0, epoch=self.now - 5)
+        status, payload = call(self.app, '/history/clear/')
+        self.assertTrue(status.startswith('200'))
+        self.assertEqual(payload['value'], u'Plot geleert.')
+        self.assertEqual(self.state.history(), [])
+        self.assertEqual(self.state.raw_history(), [])
+        self.assertEqual(payload['history_rev'], 4)
+        self.assertEqual(payload['raw_history_rev'], 2)
+        self.assertEqual(self.state.measurement(), (7.0, 8.0))
+
 
 class StaticFilesTest(unittest.TestCase):
     """Skript und Stylesheet duerfen nach einem Update nicht ungefragt aus

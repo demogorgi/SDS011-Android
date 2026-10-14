@@ -552,6 +552,14 @@ def create_app(state, on_shutdown=None, transport=None, open_url=None):
         return {'now': now, 'interval': state.record_interval(),
                 'rev': state.history_rev(), 'points': points}
 
+    @app.route('/history/clear/')
+    def clear_history():
+        """Leert nur den sichtbaren Verlauf, nicht Messdateien oder Upload."""
+        state.clear_history()
+        return {'value': u'Plot geleert.',
+                'history_rev': state.history_rev(),
+                'raw_history_rev': state.raw_history_rev()}
+
     def _chart_message(points, raw=False):
         """Text fuer ein leeres Diagramm; None = chart.py waehlt selbst
         ("Keine Messwerte in diesem Zeitraum" bzw. "Noch keine Messwerte").

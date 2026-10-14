@@ -30,7 +30,7 @@ REQUIRED_IDS = (
     'connectBtn', 'disconnectBtn', 'deviceSelect', 'connStatus',
     'errorBanner', 'pm25Value', 'pm10Value', 'pm25Level', 'pm10Level',
     'liveAge', 'gpsStatus', 'gpsCoords', 'chart', 'chartSeriesSelect', 'rangeSelect',
-    'intervalSelect', 'modeTrip', 'modeLocal', 'modeStat',
+    'clearPlotBtn', 'intervalSelect', 'modeTrip', 'modeLocal', 'modeStat',
     'tripDetails', 'tripNameInput', 'placeInput',
     'startBtn', 'stopBtn', 'sessionPanel', 'sessionElapsed',
     'sessionPoints', 'sessionAvg25', 'sessionAvg10', 'sessionFile',
@@ -419,7 +419,7 @@ class ScriptTest(SearchMixin, unittest.TestCase):
             called.add(literal.split('?')[0])
         self.assertTrue(called, 'keine Routen in app.js gefunden')
         for path in ('/status/', '/devices/', '/connect/', '/disconnect/',
-                     '/interval/', '/chart.svg', '/start/', '/stopp/',
+                     '/interval/', '/history/clear/', '/chart.svg', '/start/', '/stopp/',
                      '/localon/', '/localoff/', '/staton/', '/statoff/'):
             self.assertIn(path, called, 'app.js ruft %s nicht auf' % path)
         missing = sorted(path for path in called if path not in known)

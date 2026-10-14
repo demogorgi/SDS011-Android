@@ -1219,6 +1219,29 @@
     updateChart(true);
   }
 
+  function onClearPlot() {
+    var button = byId('clearPlotBtn');
+    setDisabled(button, true);
+    setClass(button, 'is-busy', true);
+    request('/history/clear/', function (data) {
+      if (last) {
+        last.history_rev = data.history_rev;
+        last.raw_history_rev = data.raw_history_rev;
+      }
+      chart.key = null;
+      chart.failedAt = 0;
+      updateChart(true);
+      poll();
+      toast(data.value || 'Plot geleert.', '');
+      setDisabled(button, false);
+      setClass(button, 'is-busy', false);
+    }, function () {
+      toast('Plot konnte nicht geleert werden.', 'error');
+      setDisabled(button, false);
+      setClass(button, 'is-busy', false);
+    });
+  }
+
   // -- Meldung unten ---------------------------------------------------
   function toast(text, kind) {
     if (!text) {
@@ -1386,6 +1409,7 @@
     byId('intervalSelect').addEventListener('click', onIntervalClick);
     byId('chartSeriesSelect').addEventListener('click', onChartSeriesClick);
     byId('rangeSelect').addEventListener('click', onRangeClick);
+    byId('clearPlotBtn').addEventListener('click', onClearPlot);
 
     window.addEventListener('resize', function () {
       if (resizeTimer) {

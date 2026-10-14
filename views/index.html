@@ -168,17 +168,22 @@
 
   <!-- Verlauf: das Diagramm zeichnet der Server (/chart.svg) -->
   <section class="card" aria-labelledby="chartTitle">
-    <div class="card-head card-head-wrap">
+    <div class="card-head chart-head">
       <h2 class="card-title" id="chartTitle">Verlauf</h2>
-      <div class="seg seg-fit" id="chartSeriesSelect" role="group" aria-label="Datenreihe">
-        <button type="button" data-series="mean" aria-pressed="true">Mittelwerte</button>
-        <button type="button" data-series="raw" aria-pressed="false">Rohwerte</button>
-      </div>
-      <div class="seg seg-fit" id="rangeSelect" role="group" aria-label="Zeitraum">
-        <button type="button" data-range="600" aria-pressed="false">10 min</button>
-        <button type="button" data-range="3600" aria-pressed="false">1 h</button>
-        <button type="button" data-range="21600" aria-pressed="false">6 h</button>
-        <button type="button" data-range="0" aria-pressed="true">Alles</button>
+      <div class="chart-tools">
+        <div class="seg seg-fit" id="chartSeriesSelect" role="group" aria-label="Datenreihe">
+          <button type="button" data-series="mean" aria-pressed="true">Mittelwerte</button>
+          <button type="button" data-series="raw" aria-pressed="false">Rohwerte</button>
+        </div>
+        <div class="seg seg-fit" id="rangeSelect" role="group" aria-label="Zeitraum">
+          <button type="button" data-range="600" aria-pressed="false">10 min</button>
+          <button type="button" data-range="3600" aria-pressed="false">1 h</button>
+          <button type="button" data-range="21600" aria-pressed="false">6 h</button>
+          <button type="button" data-range="0" aria-pressed="true">Alles</button>
+        </div>
+        <button type="button" class="icon-btn" id="clearPlotBtn" aria-label="Plot leeren" title="Plot leeren">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 15h10l1-15"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
       </div>
     </div>
     <figure class="chart-fig">

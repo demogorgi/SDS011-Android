@@ -152,7 +152,9 @@ SDS011-Schlafphase kommen keine neuen Rohwerte. Grau hinterlegt ist, was
 in einer Datei steht (*gespeichert*), gestrichelt die Grenzen 25, 40 und 50.
 Zeitraum: 10 min, 1 h, 6 h oder *Alles* (die letzten `HISTORY_SIZE`
 Mittelwerte bzw. `RAW_HISTORY_SIZE` Rohwerte). Der Verlauf liegt nur im
-Speicher und beginnt nach einem Neustart der App von vorn.
+Speicher und beginnt nach einem Neustart der App von vorn. `Plot leeren`
+leert diesen Anzeigeverlauf fuer Mittelwerte und Rohwerte; CSV, KML und
+Upload bleiben unveraendert.
 
 **Bildschirm aus:** Die Messung läuft in der App weiter, nur die Seite
 fragt nichts ab. Nach dem Einschalten ist das Diagramm sofort vollständig,

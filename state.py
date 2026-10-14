@@ -344,6 +344,14 @@ class AppState(object):
         with self._lock:
             return self._raw_history_rev
 
+    def clear_history(self):
+        """Mittelwert- und Rohwert-Verlauf fuer den Plot leeren."""
+        with self._lock:
+            self._history.clear()
+            self._raw_history.clear()
+            self._history_rev += 1
+            self._raw_history_rev += 1
+
     # -- Aufzeichnung, Upload, naechster Punkt -------------------------
     def set_session(self, info):
         """Laufende oder letzte Aufzeichnung als dict (siehe Recorder),

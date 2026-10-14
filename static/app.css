@@ -434,6 +434,44 @@ sub {
 .card-head-wrap { flex-wrap: wrap; }
 .card-head-wrap .card-title { margin-right: 16px; }
 
+.chart-head {
+  display: block;
+  min-height: 0;
+}
+
+.chart-head .card-title {
+  margin-bottom: 8px;
+}
+
+.chart-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.chart-tools .seg {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 6px;
+}
+
+.chart-tools .seg-fit button {
+  flex: 1 1 0%;
+  min-width: 0;
+  padding: 0 6px;
+}
+
+#chartSeriesSelect { flex-basis: 156px; }
+#rangeSelect { flex-basis: 172px; }
+
+.chart-tools .icon-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin-left: 0;
+}
+
 .card-title {
   margin: 0;
   font-size: 18px;
@@ -1576,6 +1614,13 @@ sub {
   }
 
   .seg-fit button { padding: 0 8px; }
+  .chart-tools .seg { margin-right: 4px; }
+  .chart-tools .seg-fit button {
+    padding: 0 4px;
+    font-size: 13px;
+  }
+  #chartSeriesSelect { flex-basis: 144px; }
+  #rangeSelect { flex-basis: 154px; }
 }
 
 /* Handy mit laufender Messung: die Verbindung nur als Punkt, der Text
