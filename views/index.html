@@ -44,11 +44,8 @@
       <span class="brand-name">Feinstaub</span>
     </div>
     <div class="appbar-status" id="appbarStatus">
-      <!-- Laufende Messung: Tippen springt zur Karte mit "Stoppen" -->
-      <a class="pill pill-rec" id="headMode" href="#measureCard" hidden>
-        <span class="dot" aria-hidden="true"></span><span class="tnum" id="headModeText">00:00:00</span>
-      </a>
-      <span class="pill" id="connStatus" data-state="off" role="status">
+      <span class="pill" id="connStatus" data-state="off" role="status" title="Sensor: getrennt">
+        <svg class="connection-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10-5 5V2l5 5L7 17"/><path class="connection-off" d="M3 3l18 18"/></svg>
         <span class="dot" aria-hidden="true"></span><span class="pill-text" id="connText">getrennt</span>
       </span>
       <!-- Darstellung: automatisch -> hell -> dunkel (app.js applyTheme) -->

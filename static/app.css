@@ -273,6 +273,7 @@ sub {
   display: flex;
   align-items: center;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .brand-mark {
@@ -392,17 +393,50 @@ sub {
   animation: blink 1.2s ease-in-out infinite;
 }
 
-/* Laufende Messung in der Kopfzeile: ein Link zur Karte mit "Stoppen" */
-.pill-rec {
-  color: var(--text);
-  text-decoration: none;
+/* Kompakter Sensorstatus; die Laufzeit steht bei der Messung.
+   Symbol, Statuspunkt und Screenreader-Text vermitteln den Zustand. */
+#connStatus {
+  position: relative;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
 }
 
-.pill-rec:hover { border-color: var(--border-strong); }
-.pill-rec .dot {
-  background: var(--bad);
-  -webkit-animation: pulse 1.6s ease-in-out infinite;
-  animation: pulse 1.6s ease-in-out infinite;
+.connection-icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#connStatus[data-state="on"] { color: var(--good); }
+#connStatus[data-state="wait"] { color: var(--warn); }
+#connStatus:not([data-state="off"]) .connection-off { display: none; }
+
+#connStatus .dot {
+  position: absolute;
+  right: -1px;
+  bottom: 0;
+  margin: 0;
+  border: 2px solid var(--surface);
+  box-shadow: none;
+}
+
+#connStatus.is-sim .dot { border-color: var(--good); }
+
+#connStatus .pill-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* -- Seitenspalte und Karten ------------------------------------------- */
@@ -1623,25 +1657,8 @@ sub {
   #rangeSelect { flex-basis: 154px; }
 }
 
-/* Handy mit laufender Messung: die Verbindung nur als Punkt, der Text
-   bleibt fuer Screenreader. Sonst passen Laufzeit und Verbindung nicht
-   neben den Namen. */
-@media (max-width: 419px) {
-  .appbar-status.is-running #connStatus { padding: 0 10px; }
-  .appbar-status.is-running #connStatus .dot { margin-right: 0; }
-  .appbar-status.is-running .pill-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-}
-
-/* Sehr schmal: Name in der Kopfzeile weg, das Symbol bleibt. */
+/* Sehr schmal: Messwerte und Intervallauswahl etwas kompakter. */
 @media (max-width: 359px) {
-  .brand-name { display: none; }
   .seg button { font-size: 12px; }
   .num,
   .run-elapsed { font-size: 34px; }

@@ -382,7 +382,7 @@ async def collect():
                 'setup_visible': await visible(page, '#setupPanel'),
                 'session_visible': await visible(page, '#sessionPanel'),
                 'session_mode': await text(page, '#sessionMode'),
-                'head_visible': await visible(page, '#headMode'),
+                'header_timer_count': await page.locator('#headMode').count(),
                 'banner_visible': await visible(page, '#errorBanner'),
             }
             # Laufzeit zaehlt clientseitig hoch, Punkte kommen vom Server.

@@ -1035,11 +1035,6 @@
       return;
     }
     var active = activeMode(last);
-    var head = byId('headMode');
-    show(head, !!active);
-    // Laeuft eine Messung, wird die Verbindungspille schmal (nur Punkt),
-    // damit beide Pillen auch auf kleinen Handys in die Kopfzeile passen.
-    setClass(byId('appbarStatus'), 'is-running', !!active);
     if (!active) {
       return;
     }
@@ -1047,9 +1042,6 @@
     var base = sessionElapsed(runningSession(last));
     var clock = fmtClock(isNumber(base) ? base + since : 0);
     setText(byId('sessionElapsed'), clock);
-    setText(byId('headModeText'), clock);
-    setAttr(head, 'aria-label', MODES[active].name + ' aktiv seit ' + clock);
-    setAttr(head, 'title', MODES[active].name);
 
     // Bis 99 s in Sekunden, darueber mm:ss (Intervalle bis 15 min)
     var next = isNumber(last.next_point_in)

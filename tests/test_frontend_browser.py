@@ -376,7 +376,7 @@ class BrowserTest(unittest.TestCase):
         local = self._phase('local')['local']
         after = local['after_start']
         self.assertTrue(after['session_visible'])
-        self.assertTrue(after['head_visible'], 'Laufzeit fehlt in der Kopfzeile')
+        self.assertEqual(after['header_timer_count'], 0, 'Doppelte Laufzeit in der Kopfzeile')
         self.assertIn(u'Lokale Messung', after['session_mode'])
         self.assertIn(u'Kletterhalle Duisburg', after['session_mode'])
         first, second = local['elapsed']
