@@ -1,5 +1,10 @@
 # SDS011-Android
 
+> [!IMPORTANT]
+> 🚀 **Neu: Es gibt mittlerweile eine native Android-App!**
+>
+> 👉 **[SDS011 Android Native auf GitHub](https://github.com/demogorgi/SDS011-Android-Native)**
+
 Mobile Feinstaubmessung mit dem Sensor **SDS011**, angebunden über ein
 Bluetooth-Modul **HC-05/HC-06**. Das Programm läuft unter **QPython 2**
 oder **QPython 3L** auf dem Handy und zeigt Messwerte, GPS-Position und
